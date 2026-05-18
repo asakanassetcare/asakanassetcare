@@ -1,0 +1,642 @@
+import { useEffect, useState, useMemo } from 'react'
+import { useNavigate, useLocation } from 'react-router-dom'
+import { Search, X, CheckCircle, XCircle, BookCheck, ArrowRight } from 'lucide-react'
+import { supabase } from '../../lib/supabase'
+import { useAuth } from '../../hooks/useAuth'
+import { isAtLeast } from '../../lib/permissions'
+import Badge from '../../components/ui/Badge'
+import Select from '../../components/ui/Select'
+import Button from '../../components/ui/Button'
+import Modal from '../../components/ui/Modal'
+import Textarea from '../../components/ui/Textarea'
+import EmptyState from '../../components/ui/EmptyState'
+import { PageSpinner } from '../../components/ui/Spinner'
+import { formatThaiDate, formatThaiDateTime } from '../../lib/date'
+import { CreditCard, LogOut } from 'lucide-react'
+
+function isRecorded(item) {
+  return item._type === 'payment' ? !!item.accounting_recorded_at : item.status === 'recorded'
+}
+
+function itemDate(item) {
+  return item._type === 'payment' ? item.created_at : item.issued_at
+}
+
+function itemBuildingId(item) {
+  return item._type === 'payment'
+    ? item.invoices?.rooms?.building_id
+    : item.building_id
+}
+
+const DIRECTION_LABEL = {
+  refund_to_tenant:   'คืนเงินให้ผู้เช่า',
+  charge_from_tenant: 'เรียกเก็บเพิ่มจากผู้เช่า',
+}
+
+export default function PaymentsPage() {
+  const navigate = useNavigate()
+  const location = useLocation()
+  const { profile, role } = useAuth()
+  const canApprove = ['super_admin', 'accounting'].includes(role)
+  const canRecord  = isAtLeast(role, 'accounting')
+
+  // Section tab: payments | move_outs
+  const [section, setSection] = useState(location.state?.section ?? 'payments')
+
+  const [payments,      setPayments]      = useState([])
+  const [receipts,      setReceipts]      = useState([])
+  const [settlements,   setSettlements]   = useState([])
+  const [projects,      setProjects]      = useState([])
+  const [bldgMap,       setBldgMap]       = useState({})
+  const [filterProject, setFilterProject] = useState('')
+  const [loading,       setLoading]       = useState(true)
+  const [tab,           setTab]           = useState(location.state?.tab ?? 'pending')
+  const [search,        setSearch]        = useState('')
+  const [actionLoading,      setActionLoading]      = useState(null)
+  const [recording,          setRecording]          = useState(null)
+  const [confirmingStl,      setConfirmingStl]      = useState(null)
+  const [confirmStlModal,    setConfirmStlModal]    = useState(null)
+  const [confirmSlipFile,    setConfirmSlipFile]    = useState(null)
+  const [confirmBankRef,     setConfirmBankRef]     = useState('')
+  const [confirmNote,        setConfirmNote]        = useState('')
+  const [confirmStlLoading,  setConfirmStlLoading]  = useState(false)
+  const [confirmStlErr,      setConfirmStlErr]      = useState('')
+
+  const [rejectModal,  setRejectModal]  = useState(false)
+  const [rejectTarget, setRejectTarget] = useState(null)
+  const [rejectReason, setRejectReason] = useState('')
+  const [rejecting,    setRejecting]    = useState(false)
+  const [rejectErr,    setRejectErr]    = useState('')
+
+  useEffect(() => { fetchAll() }, [])
+
+  async function fetchAll() {
+    const [{ data: pData }, { data: rData }, { data: sData }, { data: projData }, { data: bData }] = await Promise.all([
+      supabase.from('payments').select(`
+        id, amount, paid_date, bank_reference, slip_url, status, created_at,
+        accounting_recorded_at, accounting_recorded_by,
+        invoices(id, invoice_number, invoice_type, total_amount,
+          rooms(room_number, building_id, buildings(id, name)),
+          tenants(full_name)),
+        recorder:profiles!recorded_by(full_name),
+        accounting_recorder:profiles!accounting_recorded_by(full_name)
+      `).order('created_at', { ascending: false }).limit(200),
+      supabase.from('receipts').select(`
+        *,
+        issuer:profiles!issued_by(full_name),
+        recorder:profiles!recorded_by(full_name)
+      `).order('issued_at', { ascending: false }),
+      supabase.from('settlements').select(`
+        id, amount, direction, status, created_at, paid_at, confirmed_at,
+        move_outs(
+          id, move_out_number, move_out_date, settlement_deadline,
+          tenants(full_name),
+          rooms(room_number, building_id, buildings(name))
+        )
+      `).not('status', 'eq', 'completed').order('created_at', { ascending: false }),
+      supabase.from('projects').select('id, name').order('name'),
+      supabase.from('buildings').select('id, name, project_id'),
+    ])
+
+    const map = {}
+    ;(bData ?? []).forEach(b => { map[b.id] = { name: b.name, project_id: b.project_id } })
+
+    setProjects(projData ?? [])
+    setBldgMap(map)
+    setPayments((pData ?? []).map(p => ({ ...p, _type: 'payment' })))
+    setReceipts((rData ?? []).map(r => ({ ...r, _type: 'receipt' })))
+    setSettlements(sData ?? [])
+    if (projData?.length && !filterProject) setFilterProject(projData[0].id)
+    setLoading(false)
+  }
+
+  function itemProjectId(item) {
+    const bId = itemBuildingId(item)
+    return bId ? bldgMap[bId]?.project_id : null
+  }
+
+  function itemBuildingName(item) {
+    const bId = itemBuildingId(item)
+    if (item._type === 'payment') return item.invoices?.rooms?.buildings?.name
+    return bId ? bldgMap[bId]?.name : null
+  }
+
+  function settlementProjectId(s) {
+    const bId = s.move_outs?.rooms?.building_id
+    return bId ? bldgMap[bId]?.project_id : null
+  }
+
+  async function handleApprove(pmt) {
+    setActionLoading(pmt.id)
+    const { error } = await supabase.from('payments').update({
+      status: 'approved',
+      approved_by: profile.id,
+      approved_at: new Date().toISOString(),
+    }).eq('id', pmt.id)
+    setActionLoading(null)
+    if (error) alert(error.message)
+    else fetchAll()
+  }
+
+  function openReject(pmt) {
+    setRejectTarget(pmt)
+    setRejectReason('')
+    setRejectErr('')
+    setRejectModal(true)
+  }
+
+  async function handleReject() {
+    if (!rejectReason.trim()) { setRejectErr('กรุณากรอกเหตุผล'); return }
+    setRejecting(true)
+    const { error } = await supabase.from('payments').update({
+      status: 'rejected',
+      rejected_at: new Date().toISOString(),
+      rejection_reason: rejectReason.trim(),
+    }).eq('id', rejectTarget.id)
+    setRejecting(false)
+    if (error) { setRejectErr(error.message); return }
+    setRejectModal(false)
+    fetchAll()
+  }
+
+  async function handleRecord(item) {
+    setRecording(item.id)
+    if (item._type === 'payment') {
+      await supabase.from('payments').update({
+        accounting_recorded_at: new Date().toISOString(),
+        accounting_recorded_by: profile.id,
+      }).eq('id', item.id)
+    } else {
+      await supabase.from('receipts').update({
+        status:      'recorded',
+        recorded_by: profile.id,
+        recorded_at: new Date().toISOString(),
+      }).eq('id', item.id)
+    }
+    setRecording(null)
+    fetchAll()
+  }
+
+  function openConfirmStl(s) {
+    setConfirmStlModal(s)
+    setConfirmSlipFile(null)
+    setConfirmBankRef('')
+    setConfirmNote('')
+    setConfirmStlErr('')
+  }
+
+  function closeConfirmStl() { setConfirmStlModal(null) }
+
+  async function handleConfirmZero(stlId) {
+    setConfirmingStl(stlId)
+    const { error } = await supabase.rpc('confirm_settlement_completed', { p_settlement_id: stlId })
+    setConfirmingStl(null)
+    if (error) alert(error.message)
+    else fetchAll()
+  }
+
+  async function handleConfirmWithSlip(e) {
+    e.preventDefault()
+    const needsSlip = confirmStlModal.direction === 'refund_to_tenant' && Number(confirmStlModal.amount) > 0
+    if (needsSlip && !confirmSlipFile) { setConfirmStlErr('กรุณาแนบสลิปการโอนเงิน'); return }
+    setConfirmStlLoading(true)
+    setConfirmStlErr('')
+    let slipUrl = null
+    if (confirmSlipFile) {
+      const ext = confirmSlipFile.name.split('.').pop()
+      const path = `settlements/${confirmStlModal.id}/acct_slip_${Date.now()}.${ext}`
+      const { error: upErr } = await supabase.storage.from('payment-slips').upload(path, confirmSlipFile)
+      if (upErr) { setConfirmStlErr(upErr.message); setConfirmStlLoading(false); return }
+      slipUrl = path
+    }
+    const { error } = await supabase.rpc('confirm_settlement_completed', {
+      p_settlement_id: confirmStlModal.id,
+      p_slip_url:      slipUrl,
+      p_bank_ref:      confirmBankRef.trim() || null,
+      p_note:          confirmNote.trim() || null,
+    })
+    setConfirmStlLoading(false)
+    if (error) { setConfirmStlErr(error.message); return }
+    closeConfirmStl()
+    fetchAll()
+  }
+
+  const projectOpts = [
+    { value: '', label: 'เลือกโครงการ' },
+    ...projects.map(p => ({ value: p.id, label: p.name })),
+  ]
+
+  const allItems = useMemo(() =>
+    [...payments, ...receipts].sort((a, b) => new Date(itemDate(b)) - new Date(itemDate(a)))
+  , [payments, receipts])
+
+  const byProject = useMemo(() =>
+    filterProject
+      ? allItems.filter(it => {
+          const pid = itemProjectId(it)
+          return pid === filterProject || (it._type === 'receipt' && !pid)
+        })
+      : []
+  , [allItems, filterProject, bldgMap])
+
+  const byTab = useMemo(() =>
+    byProject.filter(it => tab === 'recorded' ? isRecorded(it) : !isRecorded(it))
+  , [byProject, tab])
+
+  const filtered = useMemo(() => {
+    if (!search) return byTab
+    const q = search.toLowerCase()
+    return byTab.filter(it => {
+      if (it._type === 'payment') {
+        return (
+          it.invoices?.invoice_number?.toLowerCase().includes(q) ||
+          it.invoices?.tenants?.full_name?.toLowerCase().includes(q) ||
+          it.invoices?.rooms?.room_number?.toLowerCase().includes(q) ||
+          it.bank_reference?.toLowerCase().includes(q)
+        )
+      }
+      return (
+        it.receipt_number?.toLowerCase().includes(q) ||
+        it.description?.toLowerCase().includes(q) ||
+        it.payer_name?.toLowerCase().includes(q)
+      )
+    })
+  }, [byTab, search])
+
+  const filteredSettlements = useMemo(() =>
+    filterProject
+      ? settlements.filter(s => settlementProjectId(s) === filterProject)
+      : settlements
+  , [settlements, filterProject, bldgMap])
+
+  const pendingApproveCount = byProject.filter(it => it._type === 'payment' && it.status === 'pending_approve').length
+  const pendingList  = byProject.filter(it => !isRecorded(it))
+  const recordedList = byProject.filter(it => isRecorded(it))
+
+  // Count settlements needing accounting action
+  const actionableSettlements = filteredSettlements.filter(s =>
+    s.status === 'paid_by_staff' ||
+    s.status === 'processing' ||
+    (s.status === 'pending' && s.direction === 'refund_to_tenant')
+  )
+
+  if (loading) return <PageSpinner />
+
+  return (
+    <div>
+      <div className="mb-5 flex items-center justify-between">
+        <div>
+          <h1 className="text-xl font-semibold text-gray-900">บัญชี</h1>
+        </div>
+        <Select options={projectOpts} value={filterProject}
+          onChange={e => setFilterProject(e.target.value)} className="w-48" />
+      </div>
+
+      {/* Section tabs */}
+      <div className="mb-5 flex border-b border-gray-200">
+        {[
+          { key: 'payments',  label: 'การชำระเงิน',  count: pendingList.length },
+          { key: 'move_outs', label: 'การย้ายออก',   count: actionableSettlements.length },
+        ].map(t => (
+          <button key={t.key} onClick={() => setSection(t.key)}
+            className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
+              section === t.key
+                ? 'border-blue-600 text-blue-600'
+                : 'border-transparent text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {t.label}
+            {t.count > 0 && (
+              <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none ${
+                section === t.key ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-600'
+              }`}>
+                {t.count}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {/* ====== SECTION: การชำระเงิน ====== */}
+      {section === 'payments' && (
+        <>
+          <p className="mb-4 text-sm text-gray-500">
+            {filtered.length} รายการ
+            {pendingApproveCount > 0 && (
+              <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700">
+                {pendingApproveCount} รออนุมัติ
+              </span>
+            )}
+          </p>
+
+          {/* Accounting sub-tabs */}
+          <div className="mb-5 flex gap-1 rounded-xl bg-gray-100 p-1 w-fit">
+            {[
+              { key: 'pending',  label: 'ยังไม่บันทึก', count: pendingList.length },
+              { key: 'recorded', label: 'บันทึกแล้ว',   count: recordedList.length },
+            ].map(t => (
+              <button key={t.key} onClick={() => setTab(t.key)}
+                className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition-colors ${
+                  tab === t.key ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                {t.label}
+                {t.count > 0 && (
+                  <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold leading-none ${
+                    tab === t.key ? 'bg-blue-600 text-white' : 'bg-gray-300 text-gray-600'
+                  }`}>
+                    {t.count}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          {/* Search */}
+          <div className="mb-5 relative max-w-sm">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+            <input value={search} onChange={e => setSearch(e.target.value)}
+              placeholder="ค้นหา..."
+              className="h-9 w-full rounded-lg border border-gray-300 bg-white pl-9 pr-4 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            {search && (
+              <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400">
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+
+          {!filterProject ? (
+            <EmptyState icon={CreditCard} title="กรุณาเลือกโครงการ" />
+          ) : filtered.length === 0 ? (
+            <EmptyState icon={CreditCard} title={tab === 'pending' ? 'ไม่มีรายการรอบันทึก' : 'ยังไม่มีรายการที่บันทึกแล้ว'} />
+          ) : (
+            <div className="flex flex-col gap-2">
+              {filtered.map(item => {
+                const bldgName = itemBuildingName(item)
+                return (
+                  <div key={`${item._type}-${item.id}`}
+                    className="flex items-center justify-between rounded-xl border border-gray-100 bg-white px-4 py-3.5">
+
+                    {item._type === 'payment' ? (
+                      <div className="cursor-pointer flex-1 min-w-0"
+                        onClick={() => navigate(`/invoices/${item.invoices?.id}`)}>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-semibold text-gray-900">
+                            {item.invoices?.invoice_number}
+                            <span className="ml-2 font-bold">฿{Number(item.amount).toLocaleString('th-TH')}</span>
+                          </p>
+                          {bldgName && (
+                            <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-600">
+                              {bldgName}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-500">
+                          ห้อง {item.invoices?.rooms?.room_number} · {item.invoices?.tenants?.full_name}
+                        </p>
+                        <p className="text-xs text-gray-400">
+                          ชำระ {formatThaiDate(item.paid_date)}
+                          {item.bank_reference ? ` · ${item.bank_reference}` : ''}
+                          {item.recorder?.full_name ? ` · โดย ${item.recorder.full_name}` : ''}
+                        </p>
+                        {tab === 'recorded' && item.accounting_recorder?.full_name && (
+                          <p className="text-xs text-gray-400">
+                            บันทึกโดย {item.accounting_recorder.full_name} · {formatThaiDateTime(item.accounting_recorded_at)}
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-semibold text-gray-900">
+                            {item.receipt_number}
+                            <span className="ml-2 font-bold text-green-700">
+                              ฿{Number(item.amount).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
+                            </span>
+                          </p>
+                          <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[10px] font-medium text-orange-700">
+                            ค่าซ่อม
+                          </span>
+                          {bldgName && (
+                            <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-600">
+                              {bldgName}
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-sm text-gray-700">{item.description || '—'}</p>
+                        {item.payer_name && <p className="text-xs text-gray-500">ผู้ชำระ: {item.payer_name}</p>}
+                        <p className="text-xs text-gray-400">
+                          ออกเมื่อ {formatThaiDateTime(item.issued_at)}
+                          {item.issuer?.full_name ? ` · โดย ${item.issuer.full_name}` : ''}
+                        </p>
+                        {tab === 'recorded' && item.recorder?.full_name && (
+                          <p className="text-xs text-gray-400">
+                            บันทึกโดย {item.recorder.full_name} · {formatThaiDateTime(item.recorded_at)}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Actions */}
+                    <div className="flex items-center gap-2 shrink-0">
+                      {item._type === 'payment' && item.slip_url && (
+                        <button onClick={async e => {
+                          e.stopPropagation()
+                          const { data } = await supabase.storage.from('payment-slips').createSignedUrl(item.slip_url, 3600)
+                          if (data?.signedUrl) window.open(data.signedUrl, '_blank')
+                        }} className="text-xs text-blue-600 hover:underline">สลิป</button>
+                      )}
+                      {item._type === 'payment' && <Badge variant={item.status} />}
+                      {canApprove && item._type === 'payment' && item.status === 'pending_approve' && (
+                        <>
+                          <Button size="sm" icon={<CheckCircle className="h-3.5 w-3.5" />}
+                            loading={actionLoading === item.id}
+                            onClick={e => { e.stopPropagation(); handleApprove(item) }}>
+                            อนุมัติ
+                          </Button>
+                          <Button size="sm" variant="danger" icon={<XCircle className="h-3.5 w-3.5" />}
+                            onClick={e => { e.stopPropagation(); openReject(item) }}>
+                            ปฏิเสธ
+                          </Button>
+                        </>
+                      )}
+                      {canRecord && tab === 'pending' && (
+                        (item._type === 'payment' && item.status === 'approved') ||
+                        item._type === 'receipt'
+                      ) && (
+                        <Button size="sm" icon={<BookCheck className="h-3.5 w-3.5" />}
+                          loading={recording === item.id}
+                          onClick={e => { e.stopPropagation(); handleRecord(item) }}>
+                          บันทึก
+                        </Button>
+                      )}
+                      {tab === 'recorded' && (
+                        <span className="flex items-center gap-1 rounded-lg bg-green-50 px-3 py-1.5 text-xs font-medium text-green-700">
+                          <BookCheck className="h-3.5 w-3.5" />
+                          บันทึกแล้ว
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ====== SECTION: การย้ายออก ====== */}
+      {section === 'move_outs' && (
+        <>
+          <p className="mb-4 text-sm text-gray-500">
+            {filteredSettlements.length} รายการ
+            {actionableSettlements.length > 0 && (
+              <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700">
+                {actionableSettlements.length} รอดำเนินการ
+              </span>
+            )}
+          </p>
+
+          {filteredSettlements.length === 0 ? (
+            <EmptyState icon={LogOut} title="ไม่มีรายการย้ายออกที่รอดำเนินการ" />
+          ) : (
+            <div className="flex flex-col gap-2">
+              {filteredSettlements.map(s => {
+                const mo = s.move_outs
+                const isActionable = canApprove && (
+                  s.status === 'paid_by_staff' ||
+                  s.status === 'processing' ||
+                  (s.status === 'pending' && s.direction === 'refund_to_tenant')
+                )
+                return (
+                  <div key={s.id}
+                    onClick={() => navigate(`/move-outs/${mo?.id}`)}
+                    className="flex cursor-pointer items-center justify-between rounded-xl border border-gray-100 bg-white px-4 py-3.5 gap-4 hover:shadow-md transition-all">
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <p className="text-sm font-semibold text-gray-900">{mo?.move_out_number}</p>
+                        {/* Status pill */}
+                        {s.status === 'pending' && s.direction === 'refund_to_tenant' && (
+                          <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-medium text-blue-700">
+                            {Number(s.amount) === 0 ? 'รอยืนยัน' : 'รอทำจ่าย'}
+                          </span>
+                        )}
+                        {s.status === 'processing' && (
+                          <span className="rounded-full bg-indigo-100 px-2 py-0.5 text-[10px] font-medium text-indigo-700">กำลังดำเนินการโอน</span>
+                        )}
+                        {s.status === 'pending' && s.direction === 'charge_from_tenant' && (
+                          <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-700">ติดตามหนี้</span>
+                        )}
+                        {s.status === 'paid_by_staff' && (
+                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">รอยืนยัน</span>
+                        )}
+                      </div>
+                      <p className="text-xs text-gray-500">
+                        {mo?.rooms?.buildings?.name} ห้อง {mo?.rooms?.room_number} · {mo?.tenants?.full_name}
+                      </p>
+                      <p className="text-xs text-gray-400">ย้ายออก {formatThaiDate(mo?.move_out_date)}</p>
+                    </div>
+
+                    <div className="flex items-center gap-3 shrink-0">
+                      {/* Amount */}
+                      {Number(s.amount) > 0 ? (
+                        <p className={`text-sm font-bold ${s.direction === 'refund_to_tenant' ? 'text-green-600' : 'text-red-600'}`}>
+                          {s.direction === 'refund_to_tenant' ? 'คืน' : 'หัก'} ฿{Number(s.amount).toLocaleString('th-TH')}
+                        </p>
+                      ) : (
+                        <p className="text-sm text-gray-400">฿0</p>
+                      )}
+
+                      {/* Waiting for staff */}
+                      {s.status === 'pending' && s.direction === 'charge_from_tenant' && (
+                        <span className="text-xs text-gray-400">รอ staff รับชำระ</span>
+                      )}
+
+                      {/* Accounting action — stop propagation so card click doesn't interfere */}
+                      {isActionable && (
+                        s.status === 'pending' && s.direction === 'refund_to_tenant' && Number(s.amount) === 0 ? (
+                          <Button size="sm" loading={confirmingStl === s.id}
+                            onClick={e => { e.stopPropagation(); handleConfirmZero(s.id) }}>
+                            ยืนยันตรวจสอบแล้ว
+                          </Button>
+                        ) : (
+                          <Button size="sm" icon={<CheckCircle className="h-3.5 w-3.5" />}
+                            onClick={e => { e.stopPropagation(); openConfirmStl(s) }}>
+                            {s.status === 'paid_by_staff' ? 'ยืนยันรับแล้ว'
+                              : s.status === 'processing' ? 'บันทึกการโอนแล้ว'
+                              : 'ยืนยันโอนแล้ว'}
+                          </Button>
+                        )
+                      )}
+
+                      <ArrowRight className="h-4 w-4 text-gray-300 shrink-0" />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Confirm Settlement Modal */}
+      <Modal
+        open={!!confirmStlModal}
+        onClose={closeConfirmStl}
+        title={confirmStlModal?.direction === 'refund_to_tenant' ? 'ยืนยันการโอนเงินคืนผู้เช่า' : 'ยืนยันรับชำระจากผู้เช่า'}
+        footer={
+          <>
+            <Button variant="secondary" onClick={closeConfirmStl}>ยกเลิก</Button>
+            <Button loading={confirmStlLoading} onClick={handleConfirmWithSlip}>ยืนยัน</Button>
+          </>
+        }
+      >
+        <form onSubmit={handleConfirmWithSlip} className="flex flex-col gap-3">
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-gray-700">
+              {confirmStlModal?.direction === 'refund_to_tenant' ? 'สลิปการโอนเงิน' : 'หลักฐานการรับชำระ'}
+              {confirmStlModal?.direction === 'refund_to_tenant' && Number(confirmStlModal?.amount) > 0 && (
+                <span className="ml-1 text-red-500">*</span>
+              )}
+            </label>
+            <input
+              type="file"
+              accept="image/*,application/pdf"
+              onChange={e => setConfirmSlipFile(e.target.files?.[0] ?? null)}
+              className="block w-full text-sm text-gray-500 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-blue-700 hover:file:bg-blue-100"
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-gray-700">เลขอ้างอิงธนาคาร</label>
+            <input
+              value={confirmBankRef}
+              onChange={e => setConfirmBankRef(e.target.value)}
+              placeholder="ถ้ามี"
+              className="h-9 w-full rounded-lg border border-gray-300 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <Textarea label="หมายเหตุ" rows={2} value={confirmNote}
+            onChange={e => setConfirmNote(e.target.value)} placeholder="ถ้ามี" />
+          {confirmStlErr && <p className="text-sm text-red-600">{confirmStlErr}</p>}
+        </form>
+      </Modal>
+
+      {/* Reject Modal */}
+      <Modal open={rejectModal} onClose={() => setRejectModal(false)} title="ปฏิเสธการชำระ"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setRejectModal(false)}>ปิด</Button>
+            <Button variant="danger" loading={rejecting} onClick={handleReject}>ยืนยัน</Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          <Textarea label="เหตุผล" required rows={3} value={rejectReason}
+            onChange={e => { setRejectReason(e.target.value); setRejectErr('') }} />
+          {rejectErr && <p className="text-sm text-red-600">{rejectErr}</p>}
+        </div>
+      </Modal>
+    </div>
+  )
+}
