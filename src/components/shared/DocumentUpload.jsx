@@ -18,7 +18,8 @@ const DOC_TYPE_LABEL = {
 }
 
 export default function DocumentUpload({ refTable, refId, bucket, allowedTypes, readOnly = false }) {
-  const { profile } = useAuth()
+  const { profile, role } = useAuth()
+  const canDelete = ['head_staff', 'super_admin'].includes(role)
   const [docs,         setDocs]         = useState([])
   const [loading,      setLoading]      = useState(true)
   const [uploading,    setUploading]    = useState(false)
@@ -81,7 +82,7 @@ export default function DocumentUpload({ refTable, refId, bucket, allowedTypes, 
   }
 
   async function handleDelete(doc) {
-    if (!confirm(`ลบไฟล์ "${doc.file_name}" ?`)) return
+    if (!confirm(`ลบไฟล์ "${doc.file_name}" ?\n\nการลบไม่สามารถกู้คืนได้`)) return
     await supabase.storage.from(bucket).remove([doc.file_url])
     await supabase.from('documents').delete().eq('id', doc.id)
     fetchDocs()
@@ -165,7 +166,7 @@ export default function DocumentUpload({ refTable, refId, bucket, allowedTypes, 
                   className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-blue-600 transition-colors" title="เปิดดู">
                   <Eye className="h-4 w-4" />
                 </button>
-                {!readOnly && (
+                {!readOnly && canDelete && (
                   <button onClick={() => handleDelete(doc)}
                     className="rounded-lg p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-600 transition-colors" title="ลบ">
                     <Trash2 className="h-4 w-4" />

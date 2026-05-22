@@ -147,6 +147,14 @@ export default function MoveOutDetailPage() {
     e.preventDefault()
     setEditSaving(true); setEditErr('')
 
+    if (editForm.electric_meter_end === '') { setEditSaving(false); setEditErr('กรุณากรอกเลขมิเตอร์ไฟ (ปลาย)'); return }
+    if (editForm.water_meter_end    === '') { setEditSaving(false); setEditErr('กรุณากรอกเลขมิเตอร์น้ำ (ปลาย)'); return }
+    if (!mo.checklist_out_url && !checklistOutFile) { setEditSaving(false); setEditErr('กรุณาแนบ Checklist ตรวจห้อง (ตอนออก)'); return }
+    if (!mo.bookbank_url      && !bookbankFile)     { setEditSaving(false); setEditErr('กรุณาแนบสมุดบัญชีของผู้เช่า'); return }
+    if (!editForm.bank_name.trim())           { setEditSaving(false); setEditErr('กรุณากรอกชื่อธนาคาร'); return }
+    if (!editForm.bank_account_number.trim()) { setEditSaving(false); setEditErr('กรุณากรอกเลขบัญชี'); return }
+    if (!editForm.bank_account_name.trim())   { setEditSaving(false); setEditErr('กรุณากรอกชื่อบัญชี'); return }
+
     const deposit       = Number(mo.deposit_amount)         || 0
     const outstanding   = outstandingInvoices.reduce((s, i) => s + Number(i.total_amount), 0)
     const repair        = Number(editForm.repair_cost)       || 0

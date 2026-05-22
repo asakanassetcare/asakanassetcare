@@ -23,6 +23,7 @@ const EMPTY = {
   building_id: '', room_number: '', floor: '', room_type_id: '',
   size_sqm: '', base_rent: '', base_deposit: '', base_advance: '',
   electric_meter_number: '', water_meter_number: '',
+  title_deed_number: '',
   ownership: 'owned', owner_id: '',
   status: 'available', is_rentable: true,
   status_color: '', internal_note: '',
@@ -57,6 +58,7 @@ export default function RoomFormModal({ open, onClose, onSaved, initialBuilding,
         base_advance:          String(source.base_advance ?? ''),
         electric_meter_number: isClone ? '' : (source.electric_meter_number ?? ''),
         water_meter_number:    isClone ? '' : (source.water_meter_number ?? ''),
+        title_deed_number:     source.title_deed_number ?? '',
         ownership:             source.ownership ?? 'owned',
         owner_id:              source.owner_id ?? '',
         status:                'available',  // always start available for new/clone
@@ -128,6 +130,7 @@ export default function RoomFormModal({ open, onClose, onSaved, initialBuilding,
       base_advance:          Math.max(0, Number(form.base_advance) || 0),
       electric_meter_number: form.electric_meter_number.trim() || null,
       water_meter_number:    form.water_meter_number.trim() || null,
+      title_deed_number:     form.title_deed_number.trim() || null,
       ownership:             form.ownership,
       owner_id:              form.ownership === 'managed' ? form.owner_id : null,
       status:                form.status,
@@ -277,6 +280,14 @@ export default function RoomFormModal({ open, onClose, onSaved, initialBuilding,
           value={form.water_meter_number}
           onChange={(e) => set('water_meter_number', e.target.value)}
           placeholder="W-0001"
+        />
+
+        <Input
+          label="เลขที่หนังสือกรรมสิทธิ์ห้องชุด"
+          value={form.title_deed_number}
+          onChange={(e) => set('title_deed_number', e.target.value)}
+          placeholder="อ.1/1234"
+          wrapperClass="col-span-2"
         />
 
         {/* Ownership */}

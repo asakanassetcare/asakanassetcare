@@ -13,6 +13,13 @@ function thaiDateLong(d) {
 
 function fmt(v) { return Number(v || 0).toLocaleString('th-TH') }
 
+function fmtPhone(p) {
+  if (!p) return null
+  const d = p.replace(/\D/g, '')
+  if (d.length === 10) return `${d.slice(0,3)}-${d.slice(3,6)}-${d.slice(6)}`
+  return p
+}
+
 function thaiBahtText(value) {
   const amount = Math.round(Number(value || 0))
   if (amount === 0) return 'ศูนย์บาทถ้วน'
@@ -48,10 +55,10 @@ function thaiBahtText(value) {
 const D  = <span className="inline-block min-w-[100px] border-b border-dotted border-slate-600 px-1 text-center">&#8203;</span>
 const DS = <span className="inline-block min-w-[60px]  border-b border-dotted border-slate-600 px-1 text-center">&#8203;</span>
 
-function TL({ v, min = 'min-w-[100px]' }) {
+function TL({ v, min = 'min-w-[100px]', placeholder = '' }) {
   return (
-    <span className={`inline-block ${min} border-b border-dotted border-slate-600 px-1 text-center`}>
-      {v || <span>&#8203;</span>}
+    <span className={`inline-block indent-0 ${min} border-b border-dotted border-slate-600 px-1 text-center`}>
+      {v || (placeholder ? <span className="text-slate-400">{placeholder}</span> : <span>&#8203;</span>)}
     </span>
   )
 }
@@ -65,11 +72,26 @@ function Sec({ title, children }) {
   )
 }
 
-function Sig({ role, name }) {
+function Sig({ role, name, wideName = false }) {
+  const nameInner = name || (wideName
+    ? <span className="inline-block w-[150px] border-b border-dotted border-slate-600">&#8203;</span>
+    : DS)
   return (
-    <div className="mt-6 text-center text-[13.5px] leading-7">
-      <div>ลงชื่อ <span className="inline-block min-w-[220px] border-b border-dotted border-slate-600">&nbsp;</span> {role}</div>
-      <div>({name || DS})</div>
+    <div className="mt-6 text-[13.5px] leading-7">
+      <table className="mx-auto border-separate border-spacing-0">
+        <tbody>
+          <tr>
+            <td className="whitespace-nowrap pr-1 align-bottom">ลงชื่อ</td>
+            <td className="w-[170px] border-b border-dotted border-slate-600 align-bottom">&nbsp;</td>
+            <td className="whitespace-nowrap pl-1 align-bottom">{role}</td>
+          </tr>
+          <tr>
+            <td />
+            <td className="text-center align-top">({nameInner})</td>
+            <td />
+          </tr>
+        </tbody>
+      </table>
     </div>
   )
 }
@@ -87,8 +109,8 @@ export default function ContractPrintPage() {
     async function load() {
       const { data, error } = await supabase.from('contracts').select(`
         *,
-        rooms(id, room_number, floor, size_sqm, ownership, buildings(id, name, projects(name))),
-        tenants(id, full_name, phone, email, id_card_last4)
+        rooms(id, room_number, floor, size_sqm, ownership, title_deed_number, buildings(id, name, projects(name))),
+        tenants(id, full_name, phone, email, id_card_last4, birth_date, address_house_no, address_road, address_subdistrict, address_district, address_province)
       `).eq('id', contractId).single()
 
       if (error) {
@@ -135,14 +157,30 @@ export default function ContractPrintPage() {
   const bankOwner   = bankAccount.account_name   || null
 
   const tName   = c.tenants?.full_name      || null
-  const tPhone  = c.tenants?.phone          || ''
+  const tPhone  = fmtPhone(c.tenants?.phone)
   const tIdCard = c.tenants?.id_card_number || null  // decrypted via RPC
+  const tHouseNo  = c.tenants?.address_house_no    || null
+  const tRoad     = c.tenants?.address_road        || null
+  const tSubdist  = c.tenants?.address_subdistrict || null
+  const tDistrict = c.tenants?.address_district    || null
+  const tProvince = c.tenants?.address_province    || null
+  const tAge = (() => {
+    const bd = c.tenants?.birth_date
+    if (!bd) return null
+    const today = new Date(), birth = new Date(bd)
+    let age = today.getFullYear() - birth.getFullYear()
+    if (today.getMonth() < birth.getMonth() || (today.getMonth() === birth.getMonth() && today.getDate() < birth.getDate())) age--
+    return String(age)
+  })()
 
-  const bld     = c.rooms?.buildings?.name           || ''
-  const proj    = c.rooms?.buildings?.projects?.name || ''
-  const roomNo  = c.rooms?.room_number               || ''
-  const floor   = c.rooms?.floor                     || null
-  const size    = c.rooms?.size_sqm                  || null
+  const bld       = c.rooms?.buildings?.name           || ''
+  const proj      = c.rooms?.buildings?.projects?.name || ''
+  const roomNo    = c.rooms?.room_number               || ''
+  const floor     = c.rooms?.floor                     || null
+  const size      = c.rooms?.size_sqm                  || null
+  const titleDeed      = c.rooms?.title_deed_number     || null
+  const elecMeterStart  = c.electric_meter_start != null ? String(c.electric_meter_start) : null
+  const waterMeterStart = c.water_meter_start   != null ? String(c.water_meter_start)   : null
 
   const startDate = thaiDateLong(c.contract_start_date)
   const endDate   = thaiDateLong(c.contract_end_date)
@@ -191,26 +229,29 @@ export default function ContractPrintPage() {
       <main className="print-page mx-auto w-[210mm] bg-white px-[14mm] py-[13mm] shadow-xl ring-1 ring-slate-200 print:ring-0">
 
         {/* Header */}
-        <header className="border-b-2 border-slate-900 pb-4 text-center">
-          <h1 className="text-[21px] font-bold tracking-wide">สัญญาเช่าห้องชุด</h1>
-          <div className="mt-2 flex justify-between text-[13.5px]">
-            <span>ทำที่ <TL v={coAddr} min="min-w-[140px]" /></span>
-            <span>เลขที่สัญญา {c.contract_number}</span>
-            <span>วันที่ <TL v={startDate} /></span>
+        <header className="border-b-2 border-slate-900 pb-4 text-[13.5px]">
+          <div className="flex items-baseline justify-between">
+            <div className="flex-1" />
+            <h1 className="text-[21px] font-bold tracking-wide">สัญญาเช่าห้องชุด</h1>
+            <div className="flex-1 text-right">เลขที่สัญญา <TL v={c.contract_number} min="min-w-[110px]" /></div>
+          </div>
+          <div className="mt-3 flex justify-between">
+            <span>ทำที่ <TL v="อาคาร อัสสกาญจน์ เลขที่ 191 ถนนรามคำแหง" min="min-w-[200px]" /></span>
+            <span>วันที่ <TL v={startDate} min="min-w-[100px]" /></span>
           </div>
         </header>
 
         {/* Intro */}
         <div className="mt-4 space-y-2.5 text-justify text-[13.5px] leading-[2.05]">
-          <p>
+          <p className="indent-[4em]">
             สัญญาฉบับนี้ทำขึ้นระหว่าง <TL v={co} /> เลขประจำตัวผู้เสียภาษีอากร <TL v={coTax} />
-            {' '}สำนักงานตั้งอยู่ <TL v={coAddrFull} min="min-w-[160px]" /> โดย {DS} ผู้มีอำนาจกระทำการแทน
+            {' '}สำนักงานตั้งอยู่ <TL v={coAddrFull} min="min-w-[160px]" /> โดย <TL v="ภัสสรมณฑ์ สิริณลญากรณ์" /> ผู้มีอำนาจกระทำการแทน
             {' '}ซึ่งต่อไปในสัญญานี้เรียกว่า "ผู้ให้เช่า" ฝ่ายหนึ่ง
           </p>
           <p>
-            กับ <TL v={tName} /> อายุ {DS} ปี เลขประจำตัวประชาชน <TL v={tIdCard} />
-            {' '}อยู่บ้านเลขที่ {DS} ถนน {DS} แขวง/ตำบล {DS} เขต/อำเภอ {DS} จังหวัด {DS}
-            {tPhone ? <> โทร. {tPhone}</> : null}
+            กับ <TL v={tName} /> อายุ <TL v={tAge} min="min-w-[40px]" /> ปี เลขประจำตัวประชาชน <TL v={tIdCard} />
+            {' '}อยู่บ้านเลขที่ <TL v={tHouseNo} min="min-w-[60px]" /> ถนน <TL v={tRoad} min="min-w-[80px]" /> แขวง/ตำบล <TL v={tSubdist} min="min-w-[80px]" /> เขต/อำเภอ <TL v={tDistrict} min="min-w-[80px]" /> จังหวัด <TL v={tProvince} min="min-w-[80px]" />
+            {' '}โทร. <TL v={tPhone} min="min-w-[110px]" placeholder="xxx-xxx-xxxx" />
             {' '}ซึ่งต่อไปในสัญญานี้เรียกว่า "ผู้เช่า" อีกฝ่ายหนึ่ง
           </p>
           <p>คู่สัญญาทั้งสองฝ่ายตกลงทำสัญญากันโดยมีข้อความดังต่อไปนี้</p>
@@ -225,7 +266,7 @@ export default function ContractPrintPage() {
             {' '}ชั้นที่ <TL v={floor} min="min-w-[40px]" />
             {' '}อาคาร <TL v={bld} />
             {size ? <> เนื้อที่ประมาณ <TL v={size} min="min-w-[50px]" /> ตารางเมตร</> : null}
-            {' '}ตามหนังสือกรรมสิทธิ์ห้องชุดเลขที่ {DS}
+            {' '}ตามหนังสือกรรมสิทธิ์ห้องชุดเลขที่ <TL v={titleDeed} min="min-w-[120px]" />
             {' '}ซึ่งต่อไปในสัญญานี้เรียกว่า "ห้องชุดที่เช่า"
           </p>
           <p>ผู้ให้เช่าตกลงส่งมอบห้องชุดที่เช่าพร้อมเฟอร์นิเจอร์ เครื่องใช้ไฟฟ้า และอุปกรณ์ตกแต่งตามรายการที่ระบุไว้ในบัญชีทรัพย์สินแนบท้ายสัญญา เอกสารแนบท้ายหมายเลข 1 ซึ่งถือเป็นส่วนหนึ่งของสัญญานี้</p>
@@ -350,10 +391,10 @@ export default function ContractPrintPage() {
           สัญญานี้ทำขึ้นเป็นสองฉบับ มีข้อความถูกต้องตรงกัน คู่สัญญาทั้งสองฝ่ายได้อ่านและเข้าใจข้อความในสัญญานี้โดยตลอดแล้ว เห็นว่าถูกต้องตรงตามเจตนา จึงได้ลงลายมือชื่อไว้เป็นสำคัญต่อหน้าพยาน และคู่สัญญาต่างยึดถือไว้ฝ่ายละหนึ่งฉบับ
         </p>
         <div className="grid grid-cols-2 gap-x-8">
-          <Sig role="ผู้ให้เช่า" name={DS} />
+          <Sig role="ผู้ให้เช่า" name="ภัสสรมณฑ์ สิริณลญากรณ์" />
           <Sig role="ผู้เช่า" name={tName} />
-          <Sig role="พยาน" />
-          <Sig role="พยาน" />
+          <Sig role="พยาน" wideName />
+          <Sig role="พยาน" wideName />
         </div>
 
       </main>
@@ -369,9 +410,21 @@ export default function ContractPrintPage() {
               {proj ? <> โครงการ <TL v={proj} /></> : null}
               {' '}อาคาร <TL v={bld} />
             </p>
+            <p className="mt-1 text-[13px]">
+              เลขมิเตอร์ไฟเริ่มต้น <TL v={elecMeterStart} min="min-w-[90px]" />
+              {'  '}เลขมิเตอร์น้ำเริ่มต้น <TL v={waterMeterStart} min="min-w-[90px]" />
+            </p>
           </header>
 
           <table className="mt-4 w-full border-collapse text-[12.5px]">
+            <colgroup>
+              <col style={{ width: '6%' }} />
+              <col style={{ width: '32%' }} />
+              <col style={{ width: '20%' }} />
+              <col style={{ width: '8%' }} />
+              <col style={{ width: '16%' }} />
+              <col style={{ width: '18%' }} />
+            </colgroup>
             <thead>
               <tr className="bg-slate-100">
                 {['ลำดับ','รายการ','ยี่ห้อ/รุ่น','จำนวน','สภาพ','หมายเหตุ'].map(h => (
@@ -397,8 +450,8 @@ export default function ContractPrintPage() {
             ผู้เช่าได้ตรวจสอบทรัพย์สิน เฟอร์นิเจอร์ และเครื่องใช้ไฟฟ้าตามรายการข้างต้นแล้ว เห็นว่าครบถ้วน อยู่ในสภาพดี ใช้งานได้ตามปกติ และยินยอมรับผิดชอบหากเกิดความเสียหายหรือสูญหายในระหว่างอายุสัญญาเช่า
           </p>
           <div className="grid grid-cols-2 gap-x-8">
-            <Sig role="ผู้ให้เช่า" name={DS} />
-            <Sig role="ผู้เช่า" name={tName} />
+            <Sig role="ตัวแทนผู้ให้เช่า" wideName />
+            <Sig role="ผู้เช่า" name={tName} wideName />
           </div>
         </div>
 

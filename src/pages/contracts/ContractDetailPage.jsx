@@ -45,10 +45,12 @@ export default function ContractDetailPage() {
   const [rejectErr,    setRejectErr]    = useState('')
 
   // Move-in
-  const [moveInModal,      setMoveInModal]      = useState(false)
-  const [checklistInFile,  setChecklistInFile]  = useState(null)
-  const [movingIn,         setMovingIn]         = useState(false)
-  const [moveInErr,        setMoveInErr]        = useState('')
+  const [moveInModal,           setMoveInModal]           = useState(false)
+  const [checklistInFile,       setChecklistInFile]       = useState(null)
+  const [movingIn,              setMovingIn]              = useState(false)
+  const [moveInErr,             setMoveInErr]             = useState('')
+  const [checklistInReplaceFile, setChecklistInReplaceFile] = useState(null)
+  const [checklistInReplacing,   setChecklistInReplacing]   = useState(false)
 
   // Reassign staff modal
   const [staffModal,      setStaffModal]      = useState(false)
@@ -58,6 +60,9 @@ export default function ContractDetailPage() {
 
   // Move-out modal
   const [moveOutModal, setMoveOutModal] = useState(false)
+
+  // Document status
+  const [docStatus, setDocStatus] = useState({ idCard: false, contract: false })
 
   useEffect(() => { fetchContract() }, [contractId])
   useEffect(() => { if (tab === 'invoices') fetchInvoices() }, [tab])
@@ -88,6 +93,16 @@ export default function ContractDetailPage() {
     setContract(data)
     setInitialInvoice(initInv ?? null)
     setProrateInvoice(prorateInv ?? null)
+
+    const tenantId = data.tenants?.id
+    const [{ data: tenantDocs }, { data: contractDocs }] = await Promise.all([
+      tenantId
+        ? supabase.from('documents').select('id').eq('ref_table', 'tenants').eq('ref_id', tenantId).in('doc_type', ['id_card_front', 'id_card_back']).limit(1)
+        : Promise.resolve({ data: [] }),
+      supabase.from('documents').select('id').eq('ref_table', 'contracts').eq('ref_id', contractId).eq('doc_type', 'contract_pdf').limit(1),
+    ])
+    setDocStatus({ idCard: (tenantDocs?.length ?? 0) > 0, contract: (contractDocs?.length ?? 0) > 0 })
+
     setLoading(false)
   }
 
@@ -149,6 +164,18 @@ export default function ContractDetailPage() {
     setMovingIn(false)
     setMoveInModal(false)
     fetchContract()
+  }
+
+  async function handleReplaceChecklistIn() {
+    if (!checklistInReplaceFile) return
+    setChecklistInReplacing(true)
+    const ext  = checklistInReplaceFile.name.split('.').pop()
+    const path = `checklists/in/${contractId}_${Date.now()}.${ext}`
+    const { data: cd, error: ce } = await supabase.storage.from('payment-slips').upload(path, checklistInReplaceFile)
+    if (ce) { setChecklistInReplacing(false); return }
+    const { error } = await supabase.from('contracts').update({ checklist_in_url: cd.path }).eq('id', contractId)
+    setChecklistInReplacing(false)
+    if (!error) { setChecklistInReplaceFile(null); fetchContract() }
   }
 
   async function handleReassign() {
@@ -348,6 +375,25 @@ export default function ContractDetailPage() {
             <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400">Staff รับผิดชอบ</p>
             <p className="text-sm font-medium text-gray-900">{c.profiles?.full_name ?? '—'}</p>
           </Card>
+
+          {/* Document Status */}
+          <Card className="lg:col-span-2">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400">สถานะเอกสาร</p>
+            <div className="grid grid-cols-3 gap-3">
+              {[
+                { label: 'บัตรประชาชน',       ok: docStatus.idCard },
+                { label: 'สัญญาเช่า',         ok: docStatus.contract },
+                { label: 'Checklist ตอนเข้า', ok: !!c.checklist_in_url },
+              ].map(({ label, ok }) => (
+                <div key={label} className={`flex items-center gap-2.5 rounded-lg px-3 py-2.5 ${ok ? 'bg-green-50' : 'bg-red-50'}`}>
+                  <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-bold ${ok ? 'bg-green-200 text-green-700' : 'bg-red-200 text-red-600'}`}>
+                    {ok ? '✓' : '✗'}
+                  </span>
+                  <span className={`text-sm font-medium ${ok ? 'text-green-800' : 'text-red-700'}`}>{label}</span>
+                </div>
+              ))}
+            </div>
+          </Card>
         </div>
       )}
 
@@ -383,14 +429,55 @@ export default function ContractDetailPage() {
 
       {/* Tab: Documents */}
       {tab === 'documents' && (
-        <Card className="max-w-2xl">
-          <DocumentUpload
-            refTable="contracts"
-            refId={contractId}
-            bucket="contract-pdfs"
-            allowedTypes={['contract_pdf', 'other']}
-          />
-        </Card>
+        <div className="max-w-2xl space-y-4">
+          {/* Checklist เข้าพัก */}
+          <Card>
+            <p className="mb-3 text-sm font-semibold text-gray-700">Checklist ตรวจห้อง (ตอนเข้า)</p>
+            {c.checklist_in_url && (
+              <div className="mb-3 flex items-center gap-3">
+                <button
+                  onClick={async () => {
+                    const { data } = await supabase.storage.from('payment-slips').createSignedUrl(c.checklist_in_url, 3600)
+                    if (data?.signedUrl) window.open(data.signedUrl, '_blank')
+                  }}
+                  className="text-sm font-medium text-blue-600 hover:underline"
+                >ดูเอกสาร</button>
+                <span className="text-xs text-gray-400">แนบแล้ว</span>
+              </div>
+            )}
+            {!c.checklist_in_url && !isHeadStaff && (
+              <p className="text-sm text-gray-400">ยังไม่มี checklist</p>
+            )}
+            {isHeadStaff && (
+              <>
+                <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-gray-300 px-4 py-3 hover:border-blue-400 transition-colors">
+                  <Upload className="h-4 w-4 text-gray-400 shrink-0" />
+                  <span className="text-sm text-gray-500 truncate">
+                    {checklistInReplaceFile ? checklistInReplaceFile.name : c.checklist_in_url ? 'เปลี่ยนไฟล์ checklist' : 'แนบ checklist ที่ผู้เช่าเซ็นแล้ว (รูปหรือ PDF)'}
+                  </span>
+                  <input type="file" accept="image/*,application/pdf" className="hidden"
+                    onChange={e => setChecklistInReplaceFile(e.target.files?.[0] ?? null)} />
+                </label>
+                {checklistInReplaceFile && (
+                  <div className="mt-2 flex gap-2">
+                    <Button loading={checklistInReplacing} onClick={handleReplaceChecklistIn}>บันทึก</Button>
+                    <Button variant="secondary" onClick={() => setChecklistInReplaceFile(null)}>ยกเลิก</Button>
+                  </div>
+                )}
+              </>
+            )}
+          </Card>
+
+          {/* เอกสารอื่นๆ */}
+          <Card>
+            <DocumentUpload
+              refTable="contracts"
+              refId={contractId}
+              bucket="contract-pdfs"
+              allowedTypes={['contract_pdf', 'other']}
+            />
+          </Card>
+        </div>
       )}
 
       {/* Reject Modal */}

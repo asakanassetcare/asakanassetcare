@@ -22,6 +22,8 @@ const TABS = [
 
 const EMPTY_FORM = {
   full_name: '', phone: '', email: '', line_id: '',
+  birth_date: '',
+  address_house_no: '', address_road: '', address_subdistrict: '', address_district: '', address_province: '',
   address: '', emergency_contact_name: '', emergency_contact_phone: '',
   note: '',
 }
@@ -65,7 +67,7 @@ export default function TenantDetailPage() {
   async function fetchTenant() {
     const { data } = await supabase
       .from('tenants')
-      .select('id, full_name, phone, email, line_id, address, emergency_contact_name, emergency_contact_phone, vehicle_plate, note, id_card_last4, id_card_encrypted, is_foreigner')
+      .select('id, full_name, phone, email, line_id, birth_date, address_house_no, address_road, address_subdistrict, address_district, address_province, address, emergency_contact_name, emergency_contact_phone, vehicle_plate, note, id_card_last4, id_card_encrypted, is_foreigner')
       .eq('id', tenantId)
       .single()
     if (!data) { navigate('/tenants'); return }
@@ -73,7 +75,10 @@ export default function TenantDetailPage() {
     setIsForeigner(data.is_foreigner ?? false)
     setForm({
       full_name: data.full_name, phone: data.phone, email: data.email ?? '',
-      line_id: data.line_id ?? '', address: data.address ?? '',
+      line_id: data.line_id ?? '', birth_date: data.birth_date ?? '',
+      address_house_no: data.address_house_no ?? '', address_road: data.address_road ?? '',
+      address_subdistrict: data.address_subdistrict ?? '', address_district: data.address_district ?? '',
+      address_province: data.address_province ?? '', address: data.address ?? '',
       emergency_contact_name: data.emergency_contact_name ?? '',
       emergency_contact_phone: data.emergency_contact_phone ?? '',
       note: data.note ?? '',
@@ -162,6 +167,14 @@ export default function TenantDetailPage() {
     setError('')
     setSaving(true)
 
+    const extraFields = {
+      birth_date:         form.birth_date         || null,
+      address_house_no:   form.address_house_no.trim()   || null,
+      address_road:       form.address_road.trim()       || null,
+      address_subdistrict:form.address_subdistrict.trim()|| null,
+      address_district:   form.address_district.trim()   || null,
+      address_province:   form.address_province.trim()   || null,
+    }
     const payload = {
       full_name: form.full_name.trim(), phone: form.phone.trim(),
       email: form.email.trim() || null, line_id: form.line_id.trim() || null,
@@ -170,6 +183,7 @@ export default function TenantDetailPage() {
       emergency_contact_phone: form.emergency_contact_phone.trim() || null,
       note: form.note.trim() || null,
       is_foreigner: isForeigner,
+      ...extraFields,
     }
 
     if (isNew) {
@@ -188,6 +202,10 @@ export default function TenantDetailPage() {
         p_note:                    payload.note,
       })
       if (rpcErr) { setSaving(false); setError(parseRpcError(rpcErr.message)); return }
+      // Update extra fields not supported by RPC
+      if (Object.values(extraFields).some(v => v !== null)) {
+        await supabase.from('tenants').update(extraFields).eq('id', newId)
+      }
       setSaving(false)
       navigate(`/tenants/${newId}`, { replace: true })
     } else {
@@ -241,6 +259,7 @@ export default function TenantDetailPage() {
             <Input label="เบอร์โทร" required phone value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="0810000000" />
             <Input label="อีเมล" type="email" value={form.email} onChange={e => set('email', e.target.value)} />
             <Input label="Line ID" value={form.line_id} onChange={e => set('line_id', e.target.value)} placeholder="@lineid" />
+            <Input label="วันเกิด" type="date" value={form.birth_date} onChange={e => set('birth_date', e.target.value)} />
 
             <div className="col-span-2">
               <IdCardField
@@ -254,7 +273,18 @@ export default function TenantDetailPage() {
               />
             </div>
 
-            <Textarea label="ที่อยู่" rows={2} value={form.address} onChange={e => set('address', e.target.value)} wrapperClass="col-span-2" />
+            <div className="col-span-2">
+              <p className="mb-2 text-sm font-medium text-gray-700">ที่อยู่ตามบัตรประชาชน</p>
+              <div className="grid grid-cols-2 gap-3">
+                <Input label="บ้านเลขที่" value={form.address_house_no} onChange={e => set('address_house_no', e.target.value)} />
+                <Input label="ถนน" value={form.address_road} onChange={e => set('address_road', e.target.value)} />
+                <Input label="แขวง/ตำบล" value={form.address_subdistrict} onChange={e => set('address_subdistrict', e.target.value)} />
+                <Input label="เขต/อำเภอ" value={form.address_district} onChange={e => set('address_district', e.target.value)} />
+                <Input label="จังหวัด" value={form.address_province} onChange={e => set('address_province', e.target.value)} />
+              </div>
+            </div>
+
+            <Textarea label="ที่อยู่อื่น (ถ้ามี)" rows={2} value={form.address} onChange={e => set('address', e.target.value)} wrapperClass="col-span-2" />
 
             <div className="col-span-2">
               <p className="mb-3 text-sm font-medium text-gray-700">ผู้ติดต่อฉุกเฉิน</p>

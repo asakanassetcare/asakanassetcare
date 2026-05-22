@@ -8,7 +8,7 @@ import Button from '../../../components/ui/Button'
 const DEFAULT = {
   prefix: 'INV',
   footer_note: 'ขอบคุณที่ใช้บริการ',
-  bank_account: { bank_name: '', account_number: '', account_name: '' },
+  bank_account: { bank_name: '', branch: '', account_number: '', account_name: '' },
 }
 
 export default function InvoiceTab() {
@@ -62,12 +62,18 @@ export default function InvoiceTab() {
 
         <div>
           <p className="mb-3 text-sm font-medium text-gray-700">บัญชีธนาคารรับโอน</p>
-          <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+          <div className="grid grid-cols-2 gap-4">
             <Input
               label="ธนาคาร"
               value={form.bank_account.bank_name}
               onChange={(e) => setBank('bank_name', e.target.value)}
               placeholder="กสิกรไทย"
+            />
+            <Input
+              label="สาขา"
+              value={form.bank_account.branch}
+              onChange={(e) => setBank('branch', e.target.value)}
+              placeholder="สาขาสยามพารากอน"
             />
             <Input
               label="เลขบัญชี"
