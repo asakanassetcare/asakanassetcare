@@ -8,6 +8,7 @@ export default function LineRegisterPage() {
   const [step,    setStep]    = useState('loading') // loading | form | success | error | already
   const [lineProfile, setLineProfile] = useState(null)
   const [phone,   setPhone]   = useState('')
+  const [roomNo,  setRoomNo]  = useState('')
   const [saving,  setSaving]  = useState(false)
   const [errMsg,  setErrMsg]  = useState('')
 
@@ -47,17 +48,24 @@ export default function LineRegisterPage() {
     setSaving(true); setErrMsg('')
 
     const normalized = phone.replace(/\D/g, '')
-    const { data: tenant, error } = await supabase
-      .from('tenants')
-      .select('id, full_name, line_user_id')
-      .eq('phone', normalized)
+    const room = roomNo.trim()
+
+    // หาสัญญา active ที่เบอร์และเลขห้องตรงกัน
+    const { data: contract, error } = await supabase
+      .from('contracts')
+      .select('id, tenant_id, tenants!inner(id, full_name, line_user_id), rooms!inner(room_number)')
+      .eq('status', 'active')
+      .eq('tenants.phone', normalized)
+      .eq('rooms.room_number', room)
       .maybeSingle()
 
-    if (error || !tenant) {
+    if (error || !contract || !contract.tenants) {
       setSaving(false)
-      setErrMsg('ไม่พบข้อมูลผู้เช่าที่ตรงกับเบอร์นี้ กรุณาติดต่อเจ้าหน้าที่')
+      setErrMsg('ไม่พบข้อมูลผู้เช่าที่ตรงกับเบอร์และเลขห้องนี้ กรุณาติดต่อเจ้าหน้าที่')
       return
     }
+
+    const tenant = contract.tenants
 
     if (tenant.line_user_id) {
       setSaving(false)
@@ -142,6 +150,17 @@ export default function LineRegisterPage() {
 
         {/* Form */}
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-gray-700">เลขห้อง</label>
+            <input
+              type="text"
+              value={roomNo}
+              onChange={e => setRoomNo(e.target.value)}
+              placeholder="507"
+              required
+              className="h-11 w-full rounded-xl border border-gray-300 px-4 text-base focus:outline-none focus:ring-2 focus:ring-green-500"
+            />
+          </div>
           <div>
             <label className="mb-1 block text-sm font-medium text-gray-700">เบอร์โทรศัพท์</label>
             <input
