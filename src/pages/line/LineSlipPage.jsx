@@ -53,7 +53,9 @@ export default function LineSlipPage() {
         if (list.length === 1) setInvoiceId(list[0].id)
         setStep('form')
       } catch (e) {
-        setErrMsg(e.message || e.code || JSON.stringify(e) || 'unknown error')
+        console.error('LIFF error:', e, 'code:', e.code, 'msg:', e.message)
+        const msg = [e.code, e.message, e.toString()].filter(Boolean).join(' | ') || 'unknown'
+        setErrMsg(msg)
         setStep('error')
       }
     }
