@@ -16,7 +16,7 @@ export default function LineRegisterPage() {
       try {
         await liff.init({ liffId: LIFF_ID })
         if (!liff.isLoggedIn()) {
-          liff.login()
+          liff.login({ redirectUri: window.location.href })
           return
         }
         const profile = await liff.getProfile()
