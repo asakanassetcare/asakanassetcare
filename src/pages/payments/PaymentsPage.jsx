@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { Search, X, CheckCircle, XCircle, BookCheck, ArrowRight } from 'lucide-react'
+import { Search, X, CheckCircle, XCircle, BookCheck, ArrowRight, ImageIcon, Link2 } from 'lucide-react'
 import { pdf } from '@react-pdf/renderer'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
@@ -72,10 +72,21 @@ export default function PaymentsPage() {
   const [rejecting,    setRejecting]    = useState(false)
   const [rejectErr,    setRejectErr]    = useState('')
 
+  const [lineSlips,         setLineSlips]         = useState([])
+  const [linkModal,         setLinkModal]          = useState(null)
+  const [linkInvoiceId,     setLinkInvoiceId]      = useState('')
+  const [linkInvoices,      setLinkInvoices]       = useState([])
+  const [linkLoading,       setLinkLoading]        = useState(false)
+  const [linkErr,           setLinkErr]            = useState('')
+  const [rejectLineModal,   setRejectLineModal]    = useState(null)
+  const [rejectLineReason,  setRejectLineReason]   = useState('')
+  const [rejectLineLoading, setRejectLineLoading]  = useState(false)
+  const [rejectLineErr,     setRejectLineErr]      = useState('')
+
   useEffect(() => { fetchAll() }, [])
 
   async function fetchAll() {
-    const [{ data: pData }, { data: rData }, { data: sData }, { data: projData }, { data: bData }] = await Promise.all([
+    const [{ data: pData }, { data: rData }, { data: sData }, { data: projData }, { data: bData }, { data: lsData }] = await Promise.all([
       supabase.from('payments').select(`
         id, amount, paid_date, bank_name, bank_reference, slip_url, status, created_at,
         accounting_recorded_at, accounting_recorded_by,
@@ -100,6 +111,12 @@ export default function PaymentsPage() {
       `).not('status', 'eq', 'completed').order('created_at', { ascending: false }),
       supabase.from('projects').select('id, name').order('name'),
       supabase.from('buildings').select('id, name, project_id'),
+      supabase.from('line_payment_submissions').select(`
+        id, line_user_id, slip_url, note, status, reject_reason, created_at,
+        tenants(id, full_name),
+        invoices(id, invoice_number),
+        reviewer:profiles!reviewed_by(full_name)
+      `).order('created_at', { ascending: false }).limit(100),
     ])
 
     const map = {}
@@ -110,6 +127,7 @@ export default function PaymentsPage() {
     setPayments((pData ?? []).map(p => ({ ...p, _type: 'payment' })))
     setReceipts((rData ?? []).map(r => ({ ...r, _type: 'receipt' })))
     setSettlements(sData ?? [])
+    setLineSlips(lsData ?? [])
     if (projData?.length && !filterProject) setFilterProject(projData[0].id)
     setLoading(false)
   }
@@ -201,6 +219,56 @@ export default function PaymentsPage() {
       }).eq('id', item.id)
     }
     setRecording(null)
+    fetchAll()
+  }
+
+  async function openLinkModal(slip) {
+    setLinkModal(slip)
+    setLinkInvoiceId('')
+    setLinkErr('')
+    const { data } = await supabase.from('invoices')
+      .select('id, invoice_number, total_amount, billing_period')
+      .eq('tenant_id', slip.tenants?.id)
+      .not('status', 'eq', 'paid')
+      .order('created_at', { ascending: false })
+      .limit(20)
+    setLinkInvoices(data ?? [])
+  }
+
+  async function handleLinkSlip() {
+    if (!linkInvoiceId) { setLinkErr('กรุณาเลือกใบแจ้งหนี้'); return }
+    setLinkLoading(true)
+    const { error } = await supabase.from('line_payment_submissions').update({
+      invoice_id:  linkInvoiceId,
+      status:      'linked',
+      reviewed_by: profile.id,
+      reviewed_at: new Date().toISOString(),
+    }).eq('id', linkModal.id)
+    setLinkLoading(false)
+    if (error) { setLinkErr(error.message); return }
+    setLinkModal(null)
+    fetchAll()
+    navigate(`/invoices/${linkInvoiceId}`)
+  }
+
+  function openRejectLine(slip) {
+    setRejectLineModal(slip)
+    setRejectLineReason('')
+    setRejectLineErr('')
+  }
+
+  async function handleRejectLine() {
+    if (!rejectLineReason.trim()) { setRejectLineErr('กรุณากรอกเหตุผล'); return }
+    setRejectLineLoading(true)
+    const { error } = await supabase.from('line_payment_submissions').update({
+      status:        'rejected',
+      reject_reason: rejectLineReason.trim(),
+      reviewed_by:   profile.id,
+      reviewed_at:   new Date().toISOString(),
+    }).eq('id', rejectLineModal.id)
+    setRejectLineLoading(false)
+    if (error) { setRejectLineErr(error.message); return }
+    setRejectLineModal(null)
     fetchAll()
   }
 
@@ -296,6 +364,7 @@ export default function PaymentsPage() {
       : settlements
   , [settlements, filterProject, bldgMap])
 
+  const pendingLineSlips = lineSlips.filter(s => s.status === 'pending')
   const pendingApproveCount = byProject.filter(it => it._type === 'payment' && it.status === 'pending_approve').length
   const pendingList  = byProject.filter(it => !isRecorded(it))
   const recordedList = byProject.filter(it => isRecorded(it))
@@ -322,8 +391,9 @@ export default function PaymentsPage() {
       {/* Section tabs */}
       <div className="mb-5 flex border-b border-gray-200">
         {[
-          { key: 'payments',  label: 'การชำระเงิน',  count: pendingList.length },
-          { key: 'move_outs', label: 'การย้ายออก',   count: actionableSettlements.length },
+          { key: 'payments',   label: 'การชำระเงิน',  count: pendingList.length },
+          { key: 'move_outs',  label: 'การย้ายออก',   count: actionableSettlements.length },
+          { key: 'line_slips', label: 'สลิป LINE',    count: pendingLineSlips.length },
         ].map(t => (
           <button key={t.key} onClick={() => setSection(t.key)}
             className={`flex items-center gap-2 px-4 py-2.5 text-sm font-medium border-b-2 transition-colors ${
@@ -606,6 +676,146 @@ export default function PaymentsPage() {
           )}
         </>
       )}
+
+      {/* ====== SECTION: สลิป LINE ====== */}
+      {section === 'line_slips' && (
+        <>
+          <p className="mb-4 text-sm text-gray-500">
+            {lineSlips.length} รายการ
+            {pendingLineSlips.length > 0 && (
+              <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700">
+                {pendingLineSlips.length} รอตรวจสอบ
+              </span>
+            )}
+          </p>
+          {lineSlips.length === 0 ? (
+            <EmptyState icon={ImageIcon} title="ยังไม่มีสลิปจาก LINE" />
+          ) : (
+            <div className="flex flex-col gap-2">
+              {lineSlips.map(slip => (
+                <div key={slip.id}
+                  className="flex items-start justify-between rounded-xl border border-gray-100 bg-white px-4 py-3.5 gap-4">
+                  {/* Slip thumbnail */}
+                  <button
+                    onClick={async () => {
+                      const { data } = await supabase.storage.from('payment-slips').createSignedUrl(slip.slip_url, 3600)
+                      if (data?.signedUrl) window.open(data.signedUrl, '_blank')
+                    }}
+                    className="shrink-0 h-16 w-16 rounded-lg border border-gray-200 bg-gray-50 overflow-hidden flex items-center justify-center hover:opacity-80 transition-opacity"
+                  >
+                    <ImageIcon className="h-6 w-6 text-gray-400" />
+                  </button>
+                  {/* Info */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <p className="text-sm font-semibold text-gray-900">
+                        {slip.tenants?.full_name ?? slip.line_user_id}
+                      </p>
+                      {slip.status === 'pending' && (
+                        <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-medium text-amber-700">รอตรวจสอบ</span>
+                      )}
+                      {slip.status === 'linked' && (
+                        <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-700">เชื่อมแล้ว</span>
+                      )}
+                      {slip.status === 'rejected' && (
+                        <span className="rounded-full bg-red-100 px-2 py-0.5 text-[10px] font-medium text-red-700">ปฏิเสธ</span>
+                      )}
+                    </div>
+                    {slip.invoices && (
+                      <p className="text-xs text-blue-600 mt-0.5">
+                        ใบแจ้งหนี้: {slip.invoices.invoice_number}
+                      </p>
+                    )}
+                    {slip.reject_reason && (
+                      <p className="text-xs text-red-500 mt-0.5">เหตุผล: {slip.reject_reason}</p>
+                    )}
+                    <p className="text-xs text-gray-400 mt-0.5">{formatThaiDateTime(slip.created_at)}</p>
+                  </div>
+                  {/* Actions */}
+                  {slip.status === 'pending' && canApprove && (
+                    <div className="flex items-center gap-2 shrink-0">
+                      <Button size="sm" icon={<Link2 className="h-3.5 w-3.5" />}
+                        onClick={() => openLinkModal(slip)}>
+                        เชื่อมใบแจ้งหนี้
+                      </Button>
+                      <Button size="sm" variant="danger" icon={<XCircle className="h-3.5 w-3.5" />}
+                        onClick={() => openRejectLine(slip)}>
+                        ปฏิเสธ
+                      </Button>
+                    </div>
+                  )}
+                  {slip.status === 'linked' && (
+                    <button
+                      onClick={() => navigate(`/invoices/${slip.invoices?.id}`)}
+                      className="shrink-0 flex items-center gap-1 text-xs text-blue-600 hover:underline"
+                    >
+                      ดูใบแจ้งหนี้ <ArrowRight className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Link LINE slip to invoice Modal */}
+      <Modal
+        open={!!linkModal}
+        onClose={() => setLinkModal(null)}
+        title="เชื่อมสลิปกับใบแจ้งหนี้"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setLinkModal(null)}>ยกเลิก</Button>
+            <Button loading={linkLoading} onClick={handleLinkSlip}>เชื่อมและไปที่ใบแจ้งหนี้</Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          <p className="text-sm text-gray-700">
+            ผู้เช่า: <span className="font-semibold">{linkModal?.tenants?.full_name}</span>
+          </p>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-gray-700">
+              เลือกใบแจ้งหนี้ <span className="text-red-500">*</span>
+            </label>
+            {linkInvoices.length === 0 ? (
+              <p className="text-sm text-gray-400">ไม่มีใบแจ้งหนี้ที่ค้างชำระ</p>
+            ) : (
+              <select
+                value={linkInvoiceId}
+                onChange={e => setLinkInvoiceId(e.target.value)}
+                className="h-9 w-full rounded-lg border border-gray-300 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                <option value="">-- เลือกใบแจ้งหนี้ --</option>
+                {linkInvoices.map(inv => (
+                  <option key={inv.id} value={inv.id}>
+                    {inv.invoice_number} — ฿{Number(inv.total_amount).toLocaleString('th-TH')}
+                    {inv.billing_period ? ` (${inv.billing_period})` : ''}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+          {linkErr && <p className="text-sm text-red-600">{linkErr}</p>}
+        </div>
+      </Modal>
+
+      {/* Reject LINE slip Modal */}
+      <Modal open={!!rejectLineModal} onClose={() => setRejectLineModal(null)} title="ปฏิเสธสลิป LINE"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setRejectLineModal(null)}>ยกเลิก</Button>
+            <Button variant="danger" loading={rejectLineLoading} onClick={handleRejectLine}>ยืนยัน</Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          <Textarea label="เหตุผล" required rows={3} value={rejectLineReason}
+            onChange={e => { setRejectLineReason(e.target.value); setRejectLineErr('') }} />
+          {rejectLineErr && <p className="text-sm text-red-600">{rejectLineErr}</p>}
+        </div>
+      </Modal>
 
       {/* Confirm Settlement Modal */}
       <Modal

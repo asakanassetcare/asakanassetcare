@@ -311,6 +311,80 @@ Deno.serve(async (req) => {
     return Response.json({ ok: true, sent: 0 })
   }
 
+  if (type === 'contract_expiry') {
+    const daysBefore = Number(body.days_before ?? 30)
+    const targetDate = new Date(today)
+    targetDate.setUTCDate(targetDate.getUTCDate() + daysBefore)
+    const targetStr  = targetDate.toISOString().slice(0, 10)
+
+    const { data: contracts } = await supabase
+      .from('contracts')
+      .select(`
+        id, contract_number, contract_end_date,
+        rooms(room_number, buildings(name)),
+        tenants(full_name, line_user_id)
+      `)
+      .eq('status', 'active')
+      .eq('contract_end_date', targetStr)
+
+    for (const c of contracts ?? []) {
+      const userId = c.tenants?.line_user_id
+      if (!userId) continue
+
+      const tenantName = c.tenants.full_name ?? ''
+      const roomName   = `${c.rooms?.buildings?.name ?? ''} ห้อง ${c.rooms?.room_number ?? ''}`
+      const endDateFmt = thaiDate(c.contract_end_date)
+
+      const flex = {
+        type: 'flex',
+        altText: `⚠️ สัญญาเช่าจะหมดอายุใน ${daysBefore} วัน`,
+        contents: {
+          type: 'bubble',
+          header: {
+            type: 'box', layout: 'vertical', paddingAll: 'lg',
+            backgroundColor: '#D97706',
+            contents: [
+              { type: 'text', text: '⚠️ สัญญาใกล้หมดอายุ', color: '#FFFFFF', size: 'md', weight: 'bold' },
+              { type: 'text', text: `${tenantName} · ${roomName}`, color: '#FEF3C7', size: 'sm', margin: 'xs' },
+            ],
+          },
+          body: {
+            type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'lg',
+            contents: [
+              {
+                type: 'box', layout: 'horizontal',
+                contents: [
+                  { type: 'text', text: 'เลขที่สัญญา', size: 'sm', color: '#6B7280', flex: 2 },
+                  { type: 'text', text: c.contract_number ?? '', size: 'sm', color: '#111827', weight: 'bold', align: 'end', flex: 3 },
+                ],
+              },
+              {
+                type: 'box', layout: 'horizontal',
+                contents: [
+                  { type: 'text', text: 'วันหมดสัญญา', size: 'sm', color: '#6B7280', flex: 2 },
+                  { type: 'text', text: endDateFmt, size: 'sm', color: '#DC2626', weight: 'bold', align: 'end', flex: 3 },
+                ],
+              },
+              {
+                type: 'box', layout: 'horizontal',
+                contents: [
+                  { type: 'text', text: 'คงเหลือ', size: 'sm', color: '#6B7280', flex: 2 },
+                  { type: 'text', text: `${daysBefore} วัน`, size: 'sm', color: '#D97706', weight: 'bold', align: 'end', flex: 3 },
+                ],
+              },
+              { type: 'separator', margin: 'lg' },
+              { type: 'text', text: 'กรุณาติดต่อเจ้าหน้าที่เพื่อต่อสัญญา', size: 'sm', color: '#374151', margin: 'lg', wrap: true, align: 'center' },
+              { type: 'text', text: '📞 080-000-0000', size: 'sm', color: '#2563EB', weight: 'bold', margin: 'xs', align: 'center' },
+            ],
+          },
+        },
+      }
+      await pushLine(userId, [flex], token)
+      sent++
+    }
+    return Response.json({ ok: true, sent })
+  }
+
   if (type === 'invoice') {
     for (const { userId, name, roomName, invoices: roomInvoices } of byRoom.values()) {
       await pushLine(userId, [buildSummaryFlex(`${name} · ${roomName}`, roomInvoices, bank, ratePerDay, today)], token)
