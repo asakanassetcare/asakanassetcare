@@ -2,6 +2,24 @@ import { useEffect, useState, useRef } from 'react'
 import liff from '@line/liff'
 import { supabase } from '../../lib/supabase'
 
+const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
+const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_ANON_KEY
+
+async function callFunction(name, body) {
+  const res = await fetch(`${SUPABASE_URL}/functions/v1/${name}`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${SUPABASE_ANON_KEY}`,
+      'apikey': SUPABASE_ANON_KEY,
+    },
+    body: JSON.stringify(body),
+  })
+  const data = await res.json()
+  if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`)
+  return data
+}
+
 const LIFF_ID = '2010168327-yibY4xtl'
 
 const MONTHS_TH = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.']
@@ -36,17 +54,7 @@ export default function LineSlipPage() {
         const p = await liff.getProfile()
         setProfile(p)
 
-        const { data: initData, error: initErr } = await supabase.functions.invoke('dynamic-endpoint', {
-          body: { userId: p.userId, action: 'init' },
-        })
-
-        console.log('init response:', JSON.stringify(initData))
-        if (initErr || initData?.error) {
-          const msg = initData?.error ?? initErr?.message
-          if (msg === 'tenant not found') { setStep('not_registered'); return }
-          throw new Error(msg)
-        }
-
+        const initData = await callFunction('dynamic-endpoint', { userId: p.userId, action: 'init' })
         setTenant(initData.tenants[0])
         const list = initData.invoices ?? []
         setInvoices(list)
@@ -83,18 +91,20 @@ export default function LineSlipPage() {
       reader.readAsDataURL(imageFile)
     })
 
-    const { error } = await supabase.functions.invoke('dynamic-endpoint', {
-      body: {
+    try {
+      await callFunction('dynamic-endpoint', {
         userId:      profile.userId,
         invoiceId:   invoiceId || null,
         note:        note.trim() || null,
         imageBase64,
         imageType:   imageFile.type,
-      },
-    })
-
+      })
+    } catch (err) {
+      setLoading(false)
+      setErrMsg('บันทึกไม่สำเร็จ: ' + err.message)
+      return
+    }
     setLoading(false)
-    if (error) { setErrMsg('บันทึกไม่สำเร็จ กรุณาลองใหม่'); return }
     setStep('success')
   }
 
