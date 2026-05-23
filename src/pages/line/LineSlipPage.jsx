@@ -128,6 +128,11 @@ export default function LineSlipPage() {
         <p className="text-lg font-semibold text-gray-800">กรุณาลงทะเบียนก่อน</p>
         <p className="mt-2 text-sm text-gray-500">คุณยังไม่ได้ผูก LINE กับบัญชีผู้เช่า</p>
         <p className="mt-1 text-xs text-gray-400">กรุณากดปุ่ม "ลงทะเบียน" ในเมนูก่อนนะครับ</p>
+        {profile?.userId && (
+          <p className="mt-4 rounded bg-gray-100 px-3 py-1.5 text-[10px] text-gray-400 break-all">
+            LINE ID: {profile.userId}
+          </p>
+        )}
       </div>
     </div>
   )
