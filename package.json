@@ -9,6 +9,7 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@line/liff": "^2.29.0",
     "@react-pdf/renderer": "^4.5.1",
     "@supabase/supabase-js": "^2.45.6",
     "dayjs": "^1.11.13",
