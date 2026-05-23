@@ -36,25 +36,18 @@ export default function LineSlipPage() {
         const p = await liff.getProfile()
         setProfile(p)
 
-        const { data: rows, error: tErr } = await supabase
-          .from('tenants')
-          .select('id, full_name')
-          .eq('line_user_id', p.userId)
+        const { data: initData, error: initErr } = await supabase.functions.invoke('line-slip-submit', {
+          body: { userId: p.userId, action: 'init' },
+        })
 
-        if (tErr) throw new Error(`tenant query: ${tErr.message}`)
-        if (!rows?.length) { setStep('not_registered'); return }
-        setTenant(rows[0])
+        if (initErr || initData?.error) {
+          const msg = initData?.error ?? initErr?.message
+          if (msg === 'tenant not found') { setStep('not_registered'); return }
+          throw new Error(msg)
+        }
 
-        const tenantIds = rows.map(r => r.id)
-        const { data: invs } = await supabase
-          .from('invoices')
-          .select('id, invoice_number, total_amount, billing_period, invoice_type, tenant_id, tenants(full_name), rooms(room_number)')
-          .in('tenant_id', tenantIds)
-          .not('status', 'eq', 'paid')
-          .order('created_at', { ascending: false })
-          .limit(20)
-
-        const list = invs ?? []
+        setTenant(initData.tenants[0])
+        const list = initData.invoices ?? []
         setInvoices(list)
         if (list.length === 1) setInvoiceId(list[0].id)
         setStep('form')

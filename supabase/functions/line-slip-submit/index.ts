@@ -15,10 +15,11 @@ Deno.serve(async (req) => {
     Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
   )
 
-  const { userId, invoiceId, note, imageBase64, imageType } = await req.json()
+  const body = await req.json()
+  const { userId, action } = body
 
-  if (!userId || !imageBase64) {
-    return Response.json({ error: 'missing required fields' }, { status: 400 })
+  if (!userId) {
+    return Response.json({ error: 'missing userId' }, { status: 400 })
   }
 
   // ตรวจสอบ tenant — อาจมีหลาย tenant ต่อ LINE account
@@ -31,6 +32,25 @@ Deno.serve(async (req) => {
     return Response.json({ error: 'tenant not found' }, { status: 404 })
   }
 
+  // action=init → คืนข้อมูล tenant + invoices สำหรับ LIFF หน้าโหลด
+  if (action === 'init') {
+    const tenantIds = tenantRows.map(r => r.id)
+    const { data: invoices } = await supabase
+      .from('invoices')
+      .select('id, invoice_number, total_amount, billing_period, invoice_type, tenant_id, rooms(room_number)')
+      .in('tenant_id', tenantIds)
+      .not('status', 'eq', 'paid')
+      .order('created_at', { ascending: false })
+      .limit(20)
+    return Response.json({ tenants: tenantRows, invoices: invoices ?? [] })
+  }
+
+  const { invoiceId, note, imageBase64, imageType } = body
+
+  if (!imageBase64) {
+    return Response.json({ error: 'missing imageBase64' }, { status: 400 })
+  }
+
   // ถ้าเลือก invoice มา ใช้ tenant_id จาก invoice นั้น
   let tenant = tenantRows[0]
   if (invoiceId) {
@@ -39,7 +59,7 @@ Deno.serve(async (req) => {
       .select('tenant_id, tenants(id, full_name)')
       .eq('id', invoiceId)
       .maybeSingle()
-    if (inv?.tenants) tenant = inv.tenants
+    if (inv?.tenants) tenant = inv.tenants as { id: string; full_name: string }
   }
 
   // Decode base64 → Uint8Array
