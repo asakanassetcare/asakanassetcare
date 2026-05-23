@@ -40,6 +40,7 @@ export default function LineSlipPage() {
           body: { userId: p.userId, action: 'init' },
         })
 
+        console.log('init response:', JSON.stringify(initData))
         if (initErr || initData?.error) {
           const msg = initData?.error ?? initErr?.message
           if (msg === 'tenant not found') { setStep('not_registered'); return }
@@ -52,7 +53,7 @@ export default function LineSlipPage() {
         if (list.length === 1) setInvoiceId(list[0].id)
         setStep('form')
       } catch (e) {
-        setErrMsg(e.message || 'เกิดข้อผิดพลาด')
+        setErrMsg(e.message || e.code || JSON.stringify(e) || 'unknown error')
         setStep('error')
       }
     }

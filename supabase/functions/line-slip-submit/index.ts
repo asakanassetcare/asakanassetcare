@@ -42,7 +42,7 @@ Deno.serve(async (req) => {
       .not('status', 'eq', 'paid')
       .order('created_at', { ascending: false })
       .limit(20)
-    return Response.json({ tenants: tenantRows, invoices: invoices ?? [] })
+    return Response.json({ tenants: tenantRows, invoices: invoices ?? [], _debug_tenantIds: tenantIds })
   }
 
   const { invoiceId, note, imageBase64, imageType } = body
