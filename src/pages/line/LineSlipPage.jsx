@@ -36,22 +36,23 @@ export default function LineSlipPage() {
         const p = await liff.getProfile()
         setProfile(p)
 
-        const { data: t } = await supabase
+        const { data: rows, error: tErr } = await supabase
           .from('tenants')
           .select('id, full_name')
           .eq('line_user_id', p.userId)
-          .maybeSingle()
 
-        if (!t) { setStep('not_registered'); return }
-        setTenant(t)
+        if (tErr) throw new Error(`tenant query: ${tErr.message}`)
+        if (!rows?.length) { setStep('not_registered'); return }
+        setTenant(rows[0])
 
+        const tenantIds = rows.map(r => r.id)
         const { data: invs } = await supabase
           .from('invoices')
-          .select('id, invoice_number, total_amount, billing_period, invoice_type')
-          .eq('tenant_id', t.id)
+          .select('id, invoice_number, total_amount, billing_period, invoice_type, tenant_id, tenants(full_name), rooms(room_number)')
+          .in('tenant_id', tenantIds)
           .not('status', 'eq', 'paid')
           .order('created_at', { ascending: false })
-          .limit(10)
+          .limit(20)
 
         const list = invs ?? []
         setInvoices(list)
@@ -182,6 +183,7 @@ export default function LineSlipPage() {
                 <option value="">-- เลือกใบแจ้งหนี้ (ถ้ามี) --</option>
                 {invoices.map(inv => (
                   <option key={inv.id} value={inv.id}>
+                    {inv.rooms?.room_number ? `ห้อง ${inv.rooms.room_number} · ` : ''}
                     {inv.invoice_number}
                     {inv.billing_period ? ` · ${thaiMonth(inv.billing_period)}` : ''}
                     {` · ฿${Number(inv.total_amount).toLocaleString('th-TH')}`}

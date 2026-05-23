@@ -21,15 +21,25 @@ Deno.serve(async (req) => {
     return Response.json({ error: 'missing required fields' }, { status: 400 })
   }
 
-  // ตรวจสอบ tenant
-  const { data: tenant } = await supabase
+  // ตรวจสอบ tenant — อาจมีหลาย tenant ต่อ LINE account
+  const { data: tenantRows } = await supabase
     .from('tenants')
     .select('id, full_name')
     .eq('line_user_id', userId)
-    .maybeSingle()
 
-  if (!tenant) {
+  if (!tenantRows?.length) {
     return Response.json({ error: 'tenant not found' }, { status: 404 })
+  }
+
+  // ถ้าเลือก invoice มา ใช้ tenant_id จาก invoice นั้น
+  let tenant = tenantRows[0]
+  if (invoiceId) {
+    const { data: inv } = await supabase
+      .from('invoices')
+      .select('tenant_id, tenants(id, full_name)')
+      .eq('id', invoiceId)
+      .maybeSingle()
+    if (inv?.tenants) tenant = inv.tenants
   }
 
   // Decode base64 → Uint8Array
