@@ -8,6 +8,7 @@ import Button from '../../../components/ui/Button'
 const DEFAULT = {
   prefix: 'INV',
   footer_note: 'ขอบคุณที่ใช้บริการ',
+  penalty_rate_per_day: 100,
   bank_account: { bank_name: '', branch: '', account_number: '', account_name: '' },
 }
 
@@ -58,6 +59,16 @@ export default function InvoiceTab() {
           value={form.footer_note}
           onChange={(e) => set('footer_note', e.target.value)}
           placeholder="ขอบคุณที่ใช้บริการ"
+        />
+
+        <Input
+          label="ค่าปรับล่าช้า (บาท/วัน)"
+          type="number"
+          min={0}
+          value={form.penalty_rate_per_day}
+          onChange={(e) => set('penalty_rate_per_day', Number(e.target.value))}
+          hint="เริ่มคิดตั้งแต่วันที่ 6 หลังวันครบกำหนด (หลังผ่านช่วงผ่อนผัน 5 วัน)"
+          className="max-w-xs"
         />
 
         <div>
