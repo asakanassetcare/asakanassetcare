@@ -140,6 +140,7 @@ export default function PaymentsPage() {
     if (error) { setActionLoading(null); alert(error.message); return }
 
     // Generate PDF ใบเสร็จ → upload → ส่ง LINE
+    let receiptUrl = null
     try {
       const blob = await pdf(
         <ReceiptPDF payment={pmt} invoice={pmt.invoices} company={settings} />
@@ -151,12 +152,14 @@ export default function PaymentsPage() {
       const { data: urlData } = await supabase.storage
         .from('payment-slips')
         .createSignedUrl(storagePath, 60 * 60 * 24 * 30) // 30 วัน
-      supabase.functions.invoke('line-notify', {
-        body: { type: 'receipt', payment_id: pmt.id, receipt_url: urlData?.signedUrl ?? null },
-      })
+      receiptUrl = urlData?.signedUrl ?? null
     } catch (e) {
-      console.error('LINE receipt error', e)
+      console.error('PDF generation error', e)
     }
+    // ส่ง LINE เสมอ ไม่ว่า PDF จะสำเร็จหรือไม่
+    supabase.functions.invoke('line-notify', {
+      body: { type: 'receipt', payment_id: pmt.id, receipt_url: receiptUrl },
+    })
 
     setActionLoading(null)
     fetchAll()
