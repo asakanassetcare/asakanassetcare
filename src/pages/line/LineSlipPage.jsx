@@ -36,7 +36,7 @@ export default function LineSlipPage() {
         const p = await liff.getProfile()
         setProfile(p)
 
-        const { data: initData, error: initErr } = await supabase.functions.invoke('line-slip-submit', {
+        const { data: initData, error: initErr } = await supabase.functions.invoke('dynamic-endpoint', {
           body: { userId: p.userId, action: 'init' },
         })
 
@@ -83,7 +83,7 @@ export default function LineSlipPage() {
       reader.readAsDataURL(imageFile)
     })
 
-    const { error } = await supabase.functions.invoke('line-slip-submit', {
+    const { error } = await supabase.functions.invoke('dynamic-endpoint', {
       body: {
         userId:      profile.userId,
         invoiceId:   invoiceId || null,
