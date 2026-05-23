@@ -66,6 +66,12 @@ export default function InvoiceDetailPage() {
   const [cancelling,   setCancelling]   = useState(false)
   const [cancelError,  setCancelError]  = useState('')
 
+  // Penalty discount modal
+  const [discountModal, setDiscountModal] = useState(false)
+  const [discountForm,  setDiscountForm]  = useState({ amount: '', note: '' })
+  const [discounting,   setDiscounting]   = useState(false)
+  const [discountError, setDiscountError] = useState('')
+
   useEffect(() => { fetchAll() }, [invoiceId])
 
   async function fetchAll() {
@@ -105,7 +111,7 @@ export default function InvoiceDetailPage() {
 
     const { error } = await supabase.from('payments').insert({
       invoice_id:     invoiceId,
-      amount:         invoice.total_amount,
+      amount:         grandTotal,
       paid_date:      payForm.paid_date,
       bank_name:      payForm.bank_name || null,
       bank_reference: payForm.bank_reference.trim() || null,
@@ -141,10 +147,48 @@ export default function InvoiceDetailPage() {
     fetchAll()
   }
 
+  async function handleDiscount(e) {
+    e.preventDefault()
+    const amt = Number(discountForm.amount)
+    if (!amt || amt <= 0) { setDiscountError('กรุณากรอกจำนวนเงิน'); return }
+    if (amt > (penalty?.amount ?? 0)) { setDiscountError(`ส่วนลดต้องไม่เกินค่าปรับ ฿${penalty?.amount?.toLocaleString('th-TH')}`); return }
+    setDiscounting(true)
+    const { error } = await supabase.from('invoices').update({
+      penalty_discount:      amt,
+      penalty_discount_note: discountForm.note.trim() || null,
+    }).eq('id', invoiceId)
+    setDiscounting(false)
+    if (error) { setDiscountError(error.message); return }
+    setDiscountModal(false)
+    fetchAll()
+  }
+
   if (loading) return <PageSpinner />
 
   const canPay    = ['pending', 'overdue'].includes(invoice.status) && ['super_admin', 'head_staff', 'staff'].includes(role)
   const canCancel = ['pending', 'overdue', 'paid_pending_approve'].includes(invoice.status) && ['super_admin', 'accounting'].includes(role)
+
+  // คำนวณค่าปรับ (เฉพาะ monthly_rent ที่เลย due_date แล้ว)
+  function calcPenalty() {
+    if (invoice.invoice_type !== 'monthly_rent') return null
+    const ratePerDay = Number(settings?.invoice?.penalty_rate_per_day ?? 100)
+    const period  = invoice.billing_period ?? invoice.due_date?.slice(0, 7)
+    if (!period) return null
+    const [y, m]   = period.split('-')
+    const startStr = `${y}-${m.padStart(2, '0')}-06`
+    const today    = new Date().toISOString().slice(0, 10)
+    if (today <= invoice.due_date || today < startStr) return null
+    const startD = new Date(startStr + 'T00:00:00Z')
+    const endD   = new Date(today    + 'T00:00:00Z')
+    const days   = Math.floor((endD - startD) / 86400000) + 1
+    return { days, startStr, endStr: today, amount: days * ratePerDay, ratePerDay }
+  }
+
+  const penalty     = calcPenalty()
+  const discount    = Math.min(Number(invoice.penalty_discount ?? 0), penalty?.amount ?? 0)
+  const netPenalty  = (penalty?.amount ?? 0) - discount
+  const grandTotal  = Number(invoice.total_amount) + netPenalty
+  const canDiscount = penalty && ['super_admin', 'head_staff'].includes(role) && ['pending', 'overdue'].includes(invoice.status)
 
   return (
     <div>
@@ -215,7 +259,22 @@ export default function InvoiceDetailPage() {
 
         <Card>
           <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400">ยอดรวม</p>
-          <p className="text-2xl font-bold text-gray-900">฿{Number(invoice.total_amount).toLocaleString('th-TH')}</p>
+          {penalty ? (
+            <>
+              <p className="text-sm text-gray-500">ค่าเช่า ฿{Number(invoice.total_amount).toLocaleString('th-TH')}</p>
+              <p className="text-sm font-medium text-red-600">ค่าปรับ ฿{penalty.amount.toLocaleString('th-TH')}</p>
+              {discount > 0 && <p className="text-sm font-medium text-green-600">ส่วนลดค่าปรับ −฿{discount.toLocaleString('th-TH')}</p>}
+              <p className="mt-1 text-2xl font-bold text-gray-900">฿{grandTotal.toLocaleString('th-TH')}</p>
+              {canDiscount && (
+                <button onClick={() => { setDiscountForm({ amount: discount || '', note: invoice.penalty_discount_note || '' }); setDiscountError(''); setDiscountModal(true) }}
+                  className="mt-3 text-xs text-blue-600 hover:underline">
+                  {discount > 0 ? 'แก้ไขส่วนลดค่าปรับ' : '+ ให้ส่วนลดค่าปรับ'}
+                </button>
+              )}
+            </>
+          ) : (
+            <p className="text-2xl font-bold text-gray-900">฿{Number(invoice.total_amount).toLocaleString('th-TH')}</p>
+          )}
           {invoice.cancellation_reason && (
             <p className="mt-2 text-xs text-red-600">{invoice.cancellation_reason}</p>
           )}
@@ -246,10 +305,36 @@ export default function InvoiceDetailPage() {
                   </tr>
                 ))}
               </tbody>
+              {penalty && (
+                <tbody>
+                  <tr className="bg-red-50">
+                    <td className="py-2 text-red-700 font-medium">
+                      ค่าปรับล่าช้า
+                      <span className="ml-2 text-xs font-normal text-red-500">
+                        ({new Date(penalty.startStr + 'T00:00:00Z').toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })} – {new Date(penalty.endStr + 'T00:00:00Z').toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })}, {penalty.days} วัน)
+                      </span>
+                    </td>
+                    <td className="py-2 text-right text-red-600">{penalty.days}</td>
+                    <td className="py-2 text-right text-red-600">฿{penalty.ratePerDay.toLocaleString('th-TH')}</td>
+                    <td className="py-2 text-right font-medium text-red-600">฿{penalty.amount.toLocaleString('th-TH')}</td>
+                  </tr>
+                  {discount > 0 && (
+                    <tr className="bg-green-50">
+                      <td className="py-2 text-green-700 font-medium">
+                        ส่วนลดค่าปรับ
+                        {invoice.penalty_discount_note && <span className="ml-2 text-xs font-normal text-green-600">({invoice.penalty_discount_note})</span>}
+                      </td>
+                      <td className="py-2 text-right text-green-600">—</td>
+                      <td className="py-2 text-right text-green-600">—</td>
+                      <td className="py-2 text-right font-medium text-green-600">−฿{discount.toLocaleString('th-TH')}</td>
+                    </tr>
+                  )}
+                </tbody>
+              )}
               <tfoot>
                 <tr>
                   <td colSpan={3} className="pt-3 text-right text-sm font-semibold text-gray-700">ยอดรวมทั้งหมด</td>
-                  <td className="pt-3 text-right text-base font-bold text-gray-900">฿{Number(invoice.total_amount).toLocaleString('th-TH')}</td>
+                  <td className="pt-3 text-right text-base font-bold text-gray-900">฿{grandTotal.toLocaleString('th-TH')}</td>
                 </tr>
               </tfoot>
             </table>
@@ -303,7 +388,8 @@ export default function InvoiceDetailPage() {
         <form id="pay-form" onSubmit={handlePayment} className="flex flex-col gap-4">
           <div className="rounded-lg bg-blue-50 px-4 py-3">
             <p className="text-xs text-blue-600">ยอดที่ต้องชำระ</p>
-            <p className="text-xl font-bold text-blue-700">฿{Number(invoice.total_amount).toLocaleString('th-TH')}</p>
+            <p className="text-xl font-bold text-blue-700">฿{grandTotal.toLocaleString('th-TH')}</p>
+            {penalty && <p className="mt-1 text-xs text-blue-500">รวมค่าปรับ ฿{netPenalty.toLocaleString('th-TH')}</p>}
           </div>
           <Input label="วันที่ชำระ" type="date" required value={payForm.paid_date}
             onChange={e => setPayForm(p => ({ ...p, paid_date: e.target.value }))} />
@@ -326,6 +412,43 @@ export default function InvoiceDetailPage() {
           <Textarea label="หมายเหตุ" rows={2} value={payForm.note}
             onChange={e => setPayForm(p => ({ ...p, note: e.target.value }))} />
           {payError && <p className="text-sm text-red-600">{payError}</p>}
+        </form>
+      </Modal>
+
+      {/* Penalty Discount Modal */}
+      <Modal
+        open={discountModal}
+        onClose={() => setDiscountModal(false)}
+        title="ให้ส่วนลดค่าปรับ"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setDiscountModal(false)}>ปิด</Button>
+            <Button form="discount-form" type="submit" loading={discounting}>บันทึก</Button>
+          </>
+        }
+      >
+        <form id="discount-form" onSubmit={handleDiscount} className="flex flex-col gap-4">
+          <div className="rounded-lg bg-red-50 px-4 py-3">
+            <p className="text-xs text-red-600">ค่าปรับทั้งหมด</p>
+            <p className="text-lg font-bold text-red-700">฿{penalty?.amount?.toLocaleString('th-TH')}</p>
+          </div>
+          <Input
+            label="จำนวนส่วนลด (บาท)"
+            type="number"
+            min={1}
+            max={penalty?.amount}
+            required
+            value={discountForm.amount}
+            onChange={e => setDiscountForm(p => ({ ...p, amount: e.target.value }))}
+            placeholder={`สูงสุด ฿${penalty?.amount?.toLocaleString('th-TH')}`}
+          />
+          <Input
+            label="หมายเหตุ"
+            value={discountForm.note}
+            onChange={e => setDiscountForm(p => ({ ...p, note: e.target.value }))}
+            placeholder="เช่น ผู้เช่าแจ้งล่วงหน้า / กรณีพิเศษ"
+          />
+          {discountError && <p className="text-sm text-red-600">{discountError}</p>}
         </form>
       </Modal>
 

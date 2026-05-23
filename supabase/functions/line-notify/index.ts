@@ -6,6 +6,10 @@ const MONTHS_TH = [
   'มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน',
   'กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม',
 ]
+const MONTHS_TH_SHORT = [
+  'ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.',
+  'ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.',
+]
 
 const TYPE_LABEL: Record<string, string> = {
   monthly_rent:     'ค่าเช่า',
@@ -48,25 +52,102 @@ function invoiceLabel(inv: any) {
   return base
 }
 
-function buildSummaryFlex(tenantName: string, invoices: any[], bank: any) {
-  const total = invoices.reduce((s, i) => s + Number(i.total_amount), 0)
-  const totalFmt = total.toLocaleString('th-TH')
+function thaiDateShort(dateStr: string) {
+  const d = new Date(dateStr + 'T00:00:00Z')
+  return `${d.getUTCDate()} ${MONTHS_TH_SHORT[d.getUTCMonth()]}`
+}
+
+function penaltyDetails(dueDate: string, billingPeriod: string | null, ratePerDay: number, today: string) {
+  // ค่าปรับเริ่มวันที่ 6 ของเดือน billing (กฎ: ชำระภายในวันที่ 5, โดนค่าปรับตั้งแต่วันที่ 6)
+  const period  = billingPeriod ?? dueDate.slice(0, 7)
+  const [y, m]  = period.split('-')
+  const startStr = `${y}-${m.padStart(2, '0')}-06`
+
+  // ไม่คิดค่าปรับถ้ายังไม่เลย due_date หรือยังไม่ถึงวันที่ 6 ของเดือน
+  if (today <= dueDate || today < startStr) return null
+
+  const startD = new Date(startStr + 'T00:00:00Z')
+  const endD   = new Date(today    + 'T00:00:00Z')
+  const days   = Math.floor((endD.getTime() - startD.getTime()) / 86400000) + 1
+  return { days, startStr, endStr: today, amount: days * ratePerDay }
+}
+
+function penaltyLabel(inv: any): string {
+  if (inv.billing_period) {
+    const [, m] = inv.billing_period.split('-')
+    return `ค่าปรับล่าช้า ${MONTHS_TH_SHORT[parseInt(m) - 1]}`
+  }
+  return `ค่าปรับล่าช้า`
+}
+
+function buildSummaryFlex(tenantName: string, invoices: any[], bank: any, ratePerDay: number, today: string) {
+  const subtotal = invoices.reduce((s, i) => s + Number(i.total_amount), 0)
+
+  const penalties = invoices.map((inv) => ({
+    inv,
+    p: inv.invoice_type === 'monthly_rent'
+      ? penaltyDetails(inv.due_date, inv.billing_period ?? null, ratePerDay, today)
+      : null,
+  }))
+  const totalPenalty = penalties.reduce((s, { p }) => s + (p?.amount ?? 0), 0)
+  const grandTotal   = subtotal + totalPenalty
+  const grandFmt     = grandTotal.toLocaleString('th-TH')
 
   // หาวันครบกำหนดที่เร็วที่สุด
   const earliestDue = invoices.reduce((min, i) => i.due_date < min ? i.due_date : min, invoices[0].due_date)
   const dueDate1 = thaiDate(earliestDue)
   const dueDate5 = thaiDate(addDays(earliestDue, 4))
 
-  // rows ต่อ invoice
-  const invoiceRows = invoices.flatMap((inv) => [
+  // rows ต่อ invoice + ค่าปรับ (ถ้ามี)
+  const invoiceRows = penalties.flatMap(({ inv, p }) => {
+    const rows: unknown[] = [
+      {
+        type: 'box', layout: 'horizontal',
+        contents: [
+          { type: 'text', text: invoiceLabel(inv), size: 'sm', color: '#374151', flex: 3, wrap: true },
+          { type: 'text', text: `฿${Number(inv.total_amount).toLocaleString('th-TH')}`, size: 'sm', color: '#111827', weight: 'bold', align: 'end', flex: 2 },
+        ],
+      },
+    ]
+    if (p) {
+      const rangeText = `${thaiDateShort(p.startStr)} - ${thaiDateShort(p.endStr)} (${p.days} วัน × ${ratePerDay})`
+      rows.push({
+        type: 'box', layout: 'horizontal',
+        contents: [
+          {
+            type: 'box', layout: 'vertical', flex: 3,
+            contents: [
+              { type: 'text', text: penaltyLabel(inv), size: 'xs', color: '#DC2626', wrap: true },
+              { type: 'text', text: rangeText, size: 'xxs', color: '#EF4444', wrap: true },
+            ],
+          },
+          { type: 'text', text: `฿${p.amount.toLocaleString('th-TH')}`, size: 'xs', color: '#DC2626', weight: 'bold', align: 'end', flex: 2 },
+        ],
+      })
+    }
+    return rows
+  })
+
+  const bodyContents: unknown[] = [
+    ...invoiceRows,
+    { type: 'separator', margin: 'lg' },
     {
-      type: 'box', layout: 'horizontal',
+      type: 'box', layout: 'horizontal', margin: 'lg',
       contents: [
-        { type: 'text', text: invoiceLabel(inv), size: 'sm', color: '#374151', flex: 3, wrap: true },
-        { type: 'text', text: `฿${Number(inv.total_amount).toLocaleString('th-TH')}`, size: 'sm', color: '#111827', weight: 'bold', align: 'end', flex: 2 },
+        { type: 'text', text: 'รวมทั้งหมด', size: 'sm', color: '#111827', weight: 'bold', flex: 3 },
+        { type: 'text', text: `฿${grandFmt}`, size: 'sm', color: '#2563EB', weight: 'bold', align: 'end', flex: 2 },
       ],
     },
-  ])
+    { type: 'separator', margin: 'lg' },
+    { type: 'text', text: `ครบกำหนดวันที่ ${dueDate1}`, size: 'sm', color: '#374151', margin: 'lg' },
+    { type: 'text', text: `ชำระได้ไม่เกิน ${dueDate5}`, size: 'sm', color: '#DC2626', weight: 'bold', margin: 'xs' },
+  ]
+
+  if (totalPenalty > 0) {
+    bodyContents.push({ type: 'text', text: `⚠️ มีค่าปรับล่าช้า ฿${totalPenalty.toLocaleString('th-TH')} รวมอยู่ด้านบนแล้ว`, size: 'xs', color: '#DC2626', margin: 'sm', wrap: true })
+  } else {
+    bodyContents.push({ type: 'text', text: 'โปรดชำระให้ทันเวลาเพื่อไม่ให้มีค่าปรับ', size: 'xs', color: '#6B7280', margin: 'sm', wrap: true })
+  }
 
   const footerContents: unknown[] = []
   if (bank?.bank_name)      footerContents.push({ type: 'text', text: `ธนาคาร: ${bank.bank_name}${bank.branch ? ` สาขา${bank.branch}` : ''}`, size: 'xs', color: '#374151' })
@@ -75,7 +156,7 @@ function buildSummaryFlex(tenantName: string, invoices: any[], bank: any) {
 
   return {
     type: 'flex',
-    altText: `สรุปยอดค้างชำระ ฿${totalFmt}`,
+    altText: `สรุปยอดค้างชำระ ฿${grandFmt}`,
     contents: {
       type: 'bubble',
       header: {
@@ -88,21 +169,7 @@ function buildSummaryFlex(tenantName: string, invoices: any[], bank: any) {
       },
       body: {
         type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'lg',
-        contents: [
-          ...invoiceRows,
-          { type: 'separator', margin: 'lg' },
-          {
-            type: 'box', layout: 'horizontal', margin: 'lg',
-            contents: [
-              { type: 'text', text: 'รวมทั้งหมด', size: 'sm', color: '#111827', weight: 'bold', flex: 3 },
-              { type: 'text', text: `฿${totalFmt}`, size: 'sm', color: '#2563EB', weight: 'bold', align: 'end', flex: 2 },
-            ],
-          },
-          { type: 'separator', margin: 'lg' },
-          { type: 'text', text: `ครบกำหนดวันที่ ${dueDate1}`, size: 'sm', color: '#374151', margin: 'lg' },
-          { type: 'text', text: `ชำระได้ไม่เกิน ${dueDate5}`, size: 'sm', color: '#DC2626', weight: 'bold', margin: 'xs' },
-          { type: 'text', text: 'โปรดชำระให้ทันเวลาเพื่อไม่ให้มีค่าปรับ', size: 'xs', color: '#6B7280', margin: 'sm', wrap: true },
-        ],
+        contents: bodyContents,
       },
       footer: footerContents.length > 0 ? {
         type: 'box', layout: 'vertical', paddingAll: 'lg',
@@ -122,11 +189,14 @@ Deno.serve(async (req) => {
 
   const token    = Deno.env.get('LINE_CHANNEL_ACCESS_TOKEN')!
   const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
-  const { type } = await req.json()
+  const body     = await req.json()
+  const type     = body.type
+  const today    = new Date().toISOString().slice(0, 10) // YYYY-MM-DD UTC
 
-  // ดึง bank account จาก settings
+  // ดึง invoice settings (bank account + penalty rate)
   const { data: settingRow } = await supabase.from('settings').select('value').eq('key', 'invoice').maybeSingle()
-  const bank = settingRow?.value?.bank_account ?? {}
+  const bank        = settingRow?.value?.bank_account ?? {}
+  const ratePerDay  = Number(settingRow?.value?.penalty_rate_per_day ?? 100)
 
   // ดึง invoice ที่ค้างอยู่ทั้งหมด (ทุก type ทุกเดือน)
   const { data: invoices } = await supabase
@@ -152,18 +222,114 @@ Deno.serve(async (req) => {
 
   let sent = 0
 
+  if (type === 'receipt') {
+    const pid = body.payment_id
+    if (pid) {
+      const { data: pmt } = await supabase
+        .from('payments')
+        .select(`
+          id, amount, paid_date, bank_name, bank_reference,
+          invoices(invoice_number, invoice_type, billing_period, due_date, penalty_discount,
+            rooms(room_number, buildings(name)),
+            tenants(full_name, line_user_id))
+        `)
+        .eq('id', pid)
+        .single()
+
+      const userId = pmt?.invoices?.tenants?.line_user_id
+      if (userId) {
+        const inv      = pmt.invoices
+        const tenantName = inv.tenants?.full_name ?? ''
+        const roomName   = `${inv.rooms?.buildings?.name ?? ''} ห้อง ${inv.rooms?.room_number ?? ''}`
+        const amtFmt     = Number(pmt.amount).toLocaleString('th-TH')
+        const dateFmt    = thaiDate(pmt.paid_date)
+
+        const flex = {
+          type: 'flex',
+          altText: `ใบเสร็จรับเงิน ฿${amtFmt}`,
+          contents: {
+            type: 'bubble',
+            header: {
+              type: 'box', layout: 'vertical', paddingAll: 'lg',
+              backgroundColor: '#16A34A',
+              contents: [
+                { type: 'text', text: '✅ ใบเสร็จรับเงิน', color: '#FFFFFF', size: 'md', weight: 'bold' },
+                { type: 'text', text: `${tenantName} · ${roomName}`, color: '#DCFCE7', size: 'sm', margin: 'xs' },
+              ],
+            },
+            body: {
+              type: 'box', layout: 'vertical', spacing: 'sm', paddingAll: 'lg',
+              contents: [
+                {
+                  type: 'box', layout: 'horizontal',
+                  contents: [
+                    { type: 'text', text: 'เลขที่', size: 'sm', color: '#6B7280', flex: 2 },
+                    { type: 'text', text: inv.invoice_number ?? '', size: 'sm', color: '#111827', weight: 'bold', align: 'end', flex: 3 },
+                  ],
+                },
+                {
+                  type: 'box', layout: 'horizontal',
+                  contents: [
+                    { type: 'text', text: 'วันที่ชำระ', size: 'sm', color: '#6B7280', flex: 2 },
+                    { type: 'text', text: dateFmt, size: 'sm', color: '#111827', weight: 'bold', align: 'end', flex: 3 },
+                  ],
+                },
+                ...(pmt.bank_name ? [{
+                  type: 'box', layout: 'horizontal',
+                  contents: [
+                    { type: 'text', text: 'ธนาคาร', size: 'sm', color: '#6B7280', flex: 2 },
+                    { type: 'text', text: pmt.bank_name, size: 'sm', color: '#111827', align: 'end', flex: 3 },
+                  ],
+                }] : []),
+                { type: 'separator', margin: 'lg' },
+                {
+                  type: 'box', layout: 'horizontal', margin: 'lg',
+                  contents: [
+                    { type: 'text', text: 'ยอดชำระ', size: 'md', color: '#111827', weight: 'bold', flex: 2 },
+                    { type: 'text', text: `฿${amtFmt}`, size: 'md', color: '#16A34A', weight: 'bold', align: 'end', flex: 3 },
+                  ],
+                },
+                { type: 'text', text: 'ขอบคุณที่ชำระเงินค่าเช่า', size: 'xs', color: '#6B7280', margin: 'lg', align: 'center' },
+              ],
+            },
+            ...(body.receipt_url ? {
+              footer: {
+                type: 'box', layout: 'vertical', paddingAll: 'md',
+                contents: [{
+                  type: 'button',
+                  action: { type: 'uri', label: '📄 ดูใบเสร็จรับเงิน', uri: body.receipt_url },
+                  style: 'primary', color: '#16A34A', height: 'sm',
+                }],
+              },
+            } : {}),
+          },
+        }
+        await pushLine(userId, [flex], token)
+        return Response.json({ ok: true, sent: 1 })
+      }
+    }
+    return Response.json({ ok: true, sent: 0 })
+  }
+
   if (type === 'invoice') {
     for (const { userId, name, roomName, invoices: roomInvoices } of byRoom.values()) {
-      await pushLine(userId, [buildSummaryFlex(`${name} · ${roomName}`, roomInvoices, bank)], token)
+      await pushLine(userId, [buildSummaryFlex(`${name} · ${roomName}`, roomInvoices, bank, ratePerDay, today)], token)
       sent++
     }
   }
 
   if (type === 'reminder') {
     for (const { userId, roomName, invoices: roomInvoices } of byRoom.values()) {
-      const total    = roomInvoices.reduce((s, i) => s + Number(i.total_amount), 0)
-      const totalFmt = total.toLocaleString('th-TH')
-      const text     = `⏰ แจ้งเตือน: วันนี้เป็นวันสุดท้ายชำระค่าเช่า\n${roomName}\nยอดค้างรวม ฿${totalFmt}\nหากชำระแล้วกรุณาแจ้งเจ้าหน้าที่\n📞 080-000-0000`
+      const subtotal     = roomInvoices.reduce((s, i) => s + Number(i.total_amount), 0)
+      const totalPenalty = roomInvoices.reduce((s, i) => s + (
+        i.invoice_type === 'monthly_rent'
+          ? (penaltyDetails(i.due_date, i.billing_period ?? null, ratePerDay, today)?.amount ?? 0)
+          : 0
+      ), 0)
+      const grandTotal   = subtotal + totalPenalty
+      const grandFmt     = grandTotal.toLocaleString('th-TH')
+      const penaltyLine  = totalPenalty > 0 ? `\n⚠️ รวมค่าปรับล่าช้า ฿${totalPenalty.toLocaleString('th-TH')}` : ''
+      const text = `⏰ แจ้งเตือน: วันนี้เป็นวันสุดท้ายชำระค่าเช่า\n${roomName}\nยอดค้างรวม ฿${grandFmt}${penaltyLine}\nหากชำระแล้วกรุณาแจ้งเจ้าหน้าที่\n📞 080-000-0000`
       await pushLine(userId, [{ type: 'text', text }], token)
       sent++
     }

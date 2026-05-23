@@ -1,9 +1,12 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { Search, X, CheckCircle, XCircle, BookCheck, ArrowRight } from 'lucide-react'
+import { pdf } from '@react-pdf/renderer'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
+import { useSettings } from '../../hooks/useSettings'
 import { isAtLeast } from '../../lib/permissions'
+import ReceiptPDF from '../../components/pdf/ReceiptPDF'
 import Badge from '../../components/ui/Badge'
 import Select from '../../components/ui/Select'
 import Button from '../../components/ui/Button'
@@ -37,6 +40,7 @@ export default function PaymentsPage() {
   const navigate = useNavigate()
   const location = useLocation()
   const { profile, role } = useAuth()
+  const { settings } = useSettings()
   const canApprove = ['super_admin', 'accounting'].includes(role)
   const canRecord  = isAtLeast(role, 'accounting')
 
@@ -73,11 +77,11 @@ export default function PaymentsPage() {
   async function fetchAll() {
     const [{ data: pData }, { data: rData }, { data: sData }, { data: projData }, { data: bData }] = await Promise.all([
       supabase.from('payments').select(`
-        id, amount, paid_date, bank_reference, slip_url, status, created_at,
+        id, amount, paid_date, bank_name, bank_reference, slip_url, status, created_at,
         accounting_recorded_at, accounting_recorded_by,
         invoices(id, invoice_number, invoice_type, total_amount,
           rooms(room_number, building_id, buildings(id, name)),
-          tenants(full_name)),
+          tenants(full_name, line_user_id)),
         recorder:profiles!recorded_by(full_name),
         accounting_recorder:profiles!accounting_recorded_by(full_name)
       `).order('created_at', { ascending: false }).limit(200),
@@ -133,9 +137,29 @@ export default function PaymentsPage() {
       approved_by: profile.id,
       approved_at: new Date().toISOString(),
     }).eq('id', pmt.id)
+    if (error) { setActionLoading(null); alert(error.message); return }
+
+    // Generate PDF ใบเสร็จ → upload → ส่ง LINE
+    try {
+      const blob = await pdf(
+        <ReceiptPDF payment={pmt} invoice={pmt.invoices} company={settings} />
+      ).toBlob()
+      const storagePath = `receipts/${pmt.id}.pdf`
+      await supabase.storage.from('payment-slips').upload(storagePath, blob, {
+        contentType: 'application/pdf', upsert: true,
+      })
+      const { data: urlData } = await supabase.storage
+        .from('payment-slips')
+        .createSignedUrl(storagePath, 60 * 60 * 24 * 30) // 30 วัน
+      supabase.functions.invoke('line-notify', {
+        body: { type: 'receipt', payment_id: pmt.id, receipt_url: urlData?.signedUrl ?? null },
+      })
+    } catch (e) {
+      console.error('LINE receipt error', e)
+    }
+
     setActionLoading(null)
-    if (error) alert(error.message)
-    else fetchAll()
+    fetchAll()
   }
 
   function openReject(pmt) {

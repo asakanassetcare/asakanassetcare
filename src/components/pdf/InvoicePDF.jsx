@@ -31,8 +31,38 @@ const S = StyleSheet.create({
   note:    { marginTop: 20, fontSize: 10, color: '#888' },
 })
 
+function calcPenaltyPDF(inv, ratePerDay) {
+  if (inv.invoice_type !== 'monthly_rent') return null
+  const period   = inv.billing_period ?? inv.due_date?.slice(0, 7)
+  if (!period) return null
+  const [y, m]   = period.split('-')
+  const startStr = `${y}-${m.padStart(2, '0')}-06`
+  const today    = new Date().toISOString().slice(0, 10)
+  if (today <= inv.due_date || today < startStr) return null
+  const startD = new Date(startStr + 'T00:00:00Z')
+  const endD   = new Date(today    + 'T00:00:00Z')
+  const days   = Math.floor((endD - startD) / 86400000) + 1
+  const fmt = (d) => new Date(d + 'T00:00:00Z').toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })
+  return { days, label: `${fmt(startStr)} – ${fmt(today)} (${days} วัน)`, amount: days * ratePerDay, ratePerDay }
+}
+
 export default function InvoicePDF({ invoice: inv, items = [], company = {} }) {
   if (!inv) return null
+
+  const ratePerDay  = Number(company?.invoice?.penalty_rate_per_day ?? 100)
+  const penalty     = calcPenaltyPDF(inv, ratePerDay)
+  const discount    = Math.min(Number(inv.penalty_discount ?? 0), penalty?.amount ?? 0)
+  const netPenalty  = (penalty?.amount ?? 0) - discount
+  const grandTotal  = Number(inv.total_amount) + netPenalty
+
+  // fallback row ถ้าไม่มี invoice_items (เช่น invoice สร้างตรงๆ ไม่ผ่าน flow ปกติ)
+  const displayItems = items.length > 0 ? items : [{
+    description: TYPE_LABEL[inv.invoice_type] ?? inv.invoice_type,
+    quantity: 1,
+    unit_price: inv.total_amount,
+    amount: inv.total_amount,
+  }]
+
   return (
     <Document title={`ใบแจ้งหนี้ ${inv.invoice_number}`}>
       <Page size="A4" style={S.page}>
@@ -75,7 +105,7 @@ export default function InvoicePDF({ invoice: inv, items = [], company = {} }) {
             <Text style={{ width: 90, textAlign: 'right', fontSize: 10, fontWeight: 700 }}>ราคา/หน่วย</Text>
             <Text style={{ width: 90, textAlign: 'right', fontSize: 10, fontWeight: 700 }}>รวม</Text>
           </View>
-          {items.map((it, i) => (
+          {displayItems.map((it, i) => (
             <View key={i} style={S.tr}>
               <Text style={{ flex: 3 }}>{it.description}</Text>
               <Text style={{ width: 50, textAlign: 'right' }}>{it.quantity}</Text>
@@ -85,11 +115,29 @@ export default function InvoicePDF({ invoice: inv, items = [], company = {} }) {
               </Text>
             </View>
           ))}
+          {penalty && (
+            <View style={[S.tr, { backgroundColor: '#fff5f5' }]}>
+              <Text style={{ flex: 3, color: '#c00' }}>ค่าปรับล่าช้า  <Text style={{ fontSize: 9, color: '#e55' }}>{penalty.label}</Text></Text>
+              <Text style={{ width: 50, textAlign: 'right', color: '#c00' }}>{penalty.days}</Text>
+              <Text style={{ width: 90, textAlign: 'right', color: '#c00' }}>{baht(penalty.ratePerDay)}</Text>
+              <Text style={{ width: 90, textAlign: 'right', color: '#c00', fontWeight: 700 }}>{baht(penalty.amount)}</Text>
+            </View>
+          )}
+          {discount > 0 && (
+            <View style={[S.tr, { backgroundColor: '#f0fdf4' }]}>
+              <Text style={{ flex: 3, color: '#16a34a' }}>
+                ส่วนลดค่าปรับ{inv.penalty_discount_note ? `  (${inv.penalty_discount_note})` : ''}
+              </Text>
+              <Text style={{ width: 50 }}></Text>
+              <Text style={{ width: 90 }}></Text>
+              <Text style={{ width: 90, textAlign: 'right', color: '#16a34a', fontWeight: 700 }}>-{baht(discount)}</Text>
+            </View>
+          )}
           <View style={S.tfoot}>
             <Text style={{ flex: 3 }}></Text>
             <Text style={{ width: 50 }}></Text>
             <Text style={{ width: 90, textAlign: 'right', fontWeight: 700 }}>ยอดรวม</Text>
-            <Text style={{ width: 90, textAlign: 'right', fontWeight: 700, fontSize: 13 }}>{baht(inv.total_amount)}</Text>
+            <Text style={{ width: 90, textAlign: 'right', fontWeight: 700, fontSize: 13 }}>{baht(grandTotal)}</Text>
           </View>
         </View>
 
