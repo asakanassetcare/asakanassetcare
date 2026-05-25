@@ -21,7 +21,7 @@ export default function MoveOutFormModal({ open, onClose, contract, onSaved }) {
 
   useEffect(() => {
     if (open && contract) {
-      setForm({ move_out_date: today, is_early_termination: false, reason: '' })
+      setForm({ move_out_date: contract.contract_end_date ?? today, is_early_termination: false, reason: '' })
       setErr('')
       setOutstandingInvoices([])
       if (contract.id) {
@@ -103,7 +103,7 @@ export default function MoveOutFormModal({ open, onClose, contract, onSaved }) {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
-          <Input label="วันที่ย้ายออก" type="date" required value={form.move_out_date} onChange={f('move_out_date')} min={form.is_early_termination ? undefined : contractEndDate} />
+          <Input label="วันที่ย้ายออก" type="date" required value={form.move_out_date} onChange={f('move_out_date')} />
           <label className="flex items-center gap-2 cursor-pointer pb-1">
             <input type="checkbox" checked={form.is_early_termination}
               onChange={e => setForm(p => ({ ...p, is_early_termination: e.target.checked }))}

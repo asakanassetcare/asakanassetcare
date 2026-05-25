@@ -46,9 +46,10 @@ export default function MoveOutDetailPage() {
   // Draft: fill-in modal
   const [editModal,    setEditModal]    = useState(false)
   const [editForm,     setEditForm]     = useState({ electric_meter_end: '', water_meter_end: '', repair_cost: '0', penalty_cost: '0', other_deduction: '0', rent_to_move_out: '0', bank_name: '', bank_account_number: '', bank_account_name: '' })
-  const [bookbankFile,     setBookbankFile]     = useState(null)
-  const [checklistOutFile, setChecklistOutFile] = useState(null)
-  const [editSaving,       setEditSaving]       = useState(false)
+  const [bookbankFile,       setBookbankFile]       = useState(null)
+  const [checklistOutFile,   setChecklistOutFile]   = useState(null)
+  const [terminationDocFile, setTerminationDocFile] = useState(null)
+  const [editSaving,         setEditSaving]         = useState(false)
   const [editErr,      setEditErr]      = useState('')
 
   // Cancel draft
@@ -139,6 +140,7 @@ export default function MoveOutDetailPage() {
     })
     setBookbankFile(null)
     setChecklistOutFile(null)
+    setTerminationDocFile(null)
     setEditErr('')
     setEditModal(true)
   }
@@ -151,6 +153,7 @@ export default function MoveOutDetailPage() {
     if (editForm.water_meter_end    === '') { setEditSaving(false); setEditErr('กรุณากรอกเลขมิเตอร์น้ำ (ปลาย)'); return }
     if (!mo.checklist_out_url && !checklistOutFile) { setEditSaving(false); setEditErr('กรุณาแนบ Checklist ตรวจห้อง (ตอนออก)'); return }
     if (!mo.bookbank_url      && !bookbankFile)     { setEditSaving(false); setEditErr('กรุณาแนบสมุดบัญชีของผู้เช่า'); return }
+    if (mo.is_early_termination && !mo.termination_doc_url && !terminationDocFile) { setEditSaving(false); setEditErr('กรุณาแนบเอกสารยกเลิกสัญญาก่อนกำหนด'); return }
     if (!editForm.bank_name.trim())           { setEditSaving(false); setEditErr('กรุณากรอกชื่อธนาคาร'); return }
     if (!editForm.bank_account_number.trim()) { setEditSaving(false); setEditErr('กรุณากรอกเลขบัญชี'); return }
     if (!editForm.bank_account_name.trim())   { setEditSaving(false); setEditErr('กรุณากรอกชื่อบัญชี'); return }
@@ -185,6 +188,16 @@ export default function MoveOutDetailPage() {
       bookbankUrl = bd.path
     }
 
+    // Upload termination doc if early termination and new file selected
+    let terminationDocUrl = mo.termination_doc_url ?? null
+    if (terminationDocFile) {
+      const ext  = terminationDocFile.name.split('.').pop()
+      const path = `termination-docs/${moveOutId}_${Date.now()}.${ext}`
+      const { data: td, error: te } = await supabase.storage.from('payment-slips').upload(path, terminationDocFile)
+      if (te) { setEditSaving(false); setEditErr('อัปโหลดเอกสารยกเลิกสัญญาไม่สำเร็จ'); return }
+      terminationDocUrl = td.path
+    }
+
     const [{ error }, { error: tenantErr }] = await Promise.all([
       supabase.from('move_outs').update({
         electric_meter_end:        editForm.electric_meter_end !== '' ? Number(editForm.electric_meter_end) : null,
@@ -198,6 +211,7 @@ export default function MoveOutDetailPage() {
         additional_charge:         chargeAmt,
         checklist_out_url:         checklistOutUrl,
         bookbank_url:              bookbankUrl,
+        termination_doc_url:       terminationDocUrl,
         settlement_deadline: (() => {
           const d = new Date(mo.move_out_date)
           d.setDate(d.getDate() + 15)
@@ -389,6 +403,7 @@ export default function MoveOutDetailPage() {
           )}
           {isHeadStaff && mo.status === 'pending_accounting' && (
             <>
+              <Button variant="danger" onClick={() => { setCancelErr(''); setCancelModal(true) }}>ยกเลิกรายการ</Button>
               <Button variant="secondary" onClick={() => { setRejectNote(''); setRejectErr(''); setRejectModal(true) }}>
                 ไม่อนุมัติ
               </Button>
@@ -462,6 +477,20 @@ export default function MoveOutDetailPage() {
                     if (data?.signedUrl) window.open(data.signedUrl, '_blank')
                   }}
                   className="text-sm font-medium text-blue-600 hover:underline"
+                >
+                  ดูเอกสาร
+                </button>
+              </div>
+            )}
+            {mo.is_early_termination && mo.termination_doc_url && (
+              <div>
+                <p className="text-xs text-red-400">เอกสารยกเลิกก่อนกำหนด</p>
+                <button
+                  onClick={async () => {
+                    const { data } = await supabase.storage.from('payment-slips').createSignedUrl(mo.termination_doc_url, 3600)
+                    if (data?.signedUrl) window.open(data.signedUrl, '_blank')
+                  }}
+                  className="text-sm font-medium text-red-600 hover:underline"
                 >
                   ดูเอกสาร
                 </button>
@@ -666,6 +695,28 @@ export default function MoveOutDetailPage() {
           function ef(key) { return e => setEditForm(p => ({ ...p, [key]: e.target.value })) }
           return (
             <form id="edit-mo-form" onSubmit={handleEditSave} className="flex flex-col gap-4">
+              {/* Early termination doc upload */}
+              {mo.is_early_termination && (
+                <div className="rounded-lg border-2 border-red-200 bg-red-50 p-4">
+                  <p className="mb-1 text-xs font-semibold uppercase tracking-wide text-red-600">เอกสารยกเลิกสัญญาก่อนกำหนด <span className="text-red-500">*</span></p>
+                  <p className="mb-3 text-xs text-red-500">เช่น หนังสือแจ้งยกเลิก / บันทึกข้อตกลง</p>
+                  <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-red-300 bg-white px-4 py-3 hover:border-red-400 transition-colors">
+                    <Upload className="h-4 w-4 text-red-400 shrink-0" />
+                    <span className="text-sm text-gray-500 truncate">
+                      {terminationDocFile ? terminationDocFile.name : mo.termination_doc_url ? 'มีไฟล์แล้ว (คลิกเพื่อเปลี่ยน)' : 'แนบเอกสาร (รูปหรือ PDF)'}
+                    </span>
+                    <input type="file" accept="image/*,application/pdf" className="hidden"
+                      onChange={e => setTerminationDocFile(e.target.files?.[0] ?? null)} />
+                  </label>
+                  {mo.termination_doc_url && !terminationDocFile && (
+                    <button type="button" onClick={async () => {
+                      const { data } = await supabase.storage.from('payment-slips').createSignedUrl(mo.termination_doc_url, 3600)
+                      if (data?.signedUrl) window.open(data.signedUrl, '_blank')
+                    }} className="mt-1 text-xs text-blue-600 hover:underline text-left">ดูเอกสารที่แนบไว้</button>
+                  )}
+                </div>
+              )}
+
               {/* Checklist upload */}
               <div className="rounded-lg border border-gray-200 p-4">
                 <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400">Checklist ตรวจห้อง (ตอนออก)</p>
@@ -875,8 +926,10 @@ export default function MoveOutDetailPage() {
         }
       >
         <p className="text-sm text-gray-600">
-          ต้องการยกเลิกรายการ <strong>{mo?.move_out_number}</strong> ใช่หรือไม่?<br />
-          รายการจะถูกลบออกจากระบบถาวร ไม่สามารถกู้คืนได้
+          ต้องการยกเลิกรายการ <strong>{mo?.move_out_number}</strong> ใช่หรือไม่?
+        </p>
+        <p className="text-sm text-gray-500 mt-1">
+          รายการจะถูกลบถาวร และสถานะห้องจะกลับเป็น <strong>มีผู้เช่า</strong> เหมือนเดิม
         </p>
         {cancelErr && <p className="mt-3 text-sm text-red-600">{cancelErr}</p>}
       </Modal>
