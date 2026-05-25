@@ -57,18 +57,13 @@ function thaiDateShort(dateStr: string) {
   return `${d.getUTCDate()} ${MONTHS_TH_SHORT[d.getUTCMonth()]}`
 }
 
-function penaltyDetails(dueDate: string, billingPeriod: string | null, ratePerDay: number, today: string) {
-  // ค่าปรับเริ่มวันที่ 6 ของเดือน billing (กฎ: ชำระภายในวันที่ 5, โดนค่าปรับตั้งแต่วันที่ 6)
-  const period  = billingPeriod ?? dueDate.slice(0, 7)
-  const [y, m]  = period.split('-')
-  const startStr = `${y}-${m.padStart(2, '0')}-06`
-
-  // ไม่คิดค่าปรับถ้ายังไม่เลย due_date หรือยังไม่ถึงวันที่ 6 ของเดือน
-  if (today <= dueDate || today < startStr) return null
-
-  const startD = new Date(startStr + 'T00:00:00Z')
-  const endD   = new Date(today    + 'T00:00:00Z')
-  const days   = Math.floor((endD.getTime() - startD.getTime()) / 86400000) + 1
+function penaltyDetails(dueDate: string, _billingPeriod: string | null, ratePerDay: number, today: string) {
+  if (today <= dueDate) return null
+  const startD = new Date(dueDate + 'T00:00:00Z')
+  startD.setUTCDate(startD.getUTCDate() + 1)
+  const startStr = startD.toISOString().slice(0, 10)
+  const endD = new Date(today + 'T00:00:00Z')
+  const days = Math.floor((endD.getTime() - startD.getTime()) / 86400000) + 1
   return { days, startStr, endStr: today, amount: days * ratePerDay }
 }
 
@@ -191,7 +186,7 @@ Deno.serve(async (req) => {
   const supabase = createClient(Deno.env.get('SUPABASE_URL')!, Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!)
   const body     = await req.json()
   const type     = body.type
-  const today    = new Date().toISOString().slice(0, 10) // YYYY-MM-DD UTC
+  const today    = new Date(Date.now() + 7 * 3600 * 1000).toISOString().slice(0, 10) // YYYY-MM-DD UTC+7
 
   // ดึง invoice settings (bank account + penalty rate)
   const { data: settingRow } = await supabase.from('settings').select('value').eq('key', 'invoice').maybeSingle()

@@ -33,16 +33,16 @@ const S = StyleSheet.create({
 
 function calcPenaltyPDF(inv, ratePerDay) {
   if (inv.invoice_type !== 'monthly_rent') return null
-  const period   = inv.billing_period ?? inv.due_date?.slice(0, 7)
-  if (!period) return null
-  const [y, m]   = period.split('-')
-  const startStr = `${y}-${m.padStart(2, '0')}-06`
-  const today    = new Date().toISOString().slice(0, 10)
-  if (today <= inv.due_date || today < startStr) return null
-  const startD = new Date(startStr + 'T00:00:00Z')
-  const endD   = new Date(today    + 'T00:00:00Z')
-  const days   = Math.floor((endD - startD) / 86400000) + 1
-  const fmt = (d) => new Date(d + 'T00:00:00Z').toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })
+  if (!inv.due_date) return null
+  const d = new Date()
+  const today = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+  if (today <= inv.due_date) return null
+  const startD = new Date(inv.due_date + 'T00:00:00Z')
+  startD.setUTCDate(startD.getUTCDate() + 1)
+  const startStr = startD.toISOString().slice(0, 10)
+  const endD = new Date(today + 'T00:00:00Z')
+  const days = Math.floor((endD - startD) / 86400000) + 1
+  const fmt = (s) => new Date(s + 'T00:00:00Z').toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })
   return { days, label: `${fmt(startStr)} – ${fmt(today)} (${days} วัน)`, amount: days * ratePerDay, ratePerDay }
 }
 

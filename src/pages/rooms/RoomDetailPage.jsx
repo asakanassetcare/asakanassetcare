@@ -35,6 +35,7 @@ export default function RoomDetailPage() {
   const [fpLabel,       setFpLabel]       = useState('')
   const [fpAdding,      setFpAdding]      = useState(false)
   const [fpShowForm,    setFpShowForm]     = useState(false)
+  const [docStatus,     setDocStatus]     = useState(null)
   const [addons,        setAddons]        = useState([])
   const [addonForm,     setAddonForm]     = useState({ name: '', amount: '', billing_cycle: 'monthly' })
   const [addonAdding,   setAddonAdding]   = useState(false)
@@ -62,7 +63,7 @@ export default function RoomDetailPage() {
     // Current contract. Approved contracts reserve the room until staff records move-in.
     const { data: ct } = await supabase
       .from('contracts')
-      .select('*, tenants(id, full_name, phone, email), rooms(room_number, buildings(name))')
+      .select('*, tenants(id, full_name, phone, email, line_user_id), rooms(room_number, buildings(name))')
       .eq('room_id', roomId)
       .in('status', ['pending_approve', 'approved', 'active'])
       .is('actual_move_out_at', null)
@@ -84,6 +85,25 @@ export default function RoomDetailPage() {
       setVehicles(vhs ?? [])
     } else {
       setVehicles([])
+    }
+
+    // Document status for current contract
+    if (ct?.id) {
+      const tenantId = ct.tenant_id
+      const [{ data: tenantDocs }, { data: contractDocs }] = await Promise.all([
+        tenantId
+          ? supabase.from('documents').select('id').eq('ref_table', 'tenants').eq('ref_id', tenantId).in('doc_type', ['id_card_front', 'id_card_back']).limit(1)
+          : Promise.resolve({ data: [] }),
+        supabase.from('documents').select('id').eq('ref_table', 'contracts').eq('ref_id', ct.id).eq('doc_type', 'contract_pdf').limit(1),
+      ])
+      setDocStatus({
+        idCard:    (tenantDocs?.length ?? 0) > 0,
+        contract:  (contractDocs?.length ?? 0) > 0,
+        checklist: !!ct.checklist_in_url,
+        line:      !!ct.tenants?.line_user_id,
+      })
+    } else {
+      setDocStatus(null)
     }
 
     // Unpaid invoices for current contract
@@ -621,6 +641,34 @@ export default function RoomDetailPage() {
               <StatusCheck ok={contract?.status === 'active' || room.status !== 'occupied'} label="สัญญาถูกต้อง" failLabel="สัญญาไม่ถูกต้อง" />
             </div>
           </div>
+
+          {/* Document status (from active contract) */}
+          {docStatus && (
+            <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
+              <h2 className="mb-3 text-sm font-semibold text-gray-700">สถานะเอกสาร</h2>
+              <div className="grid grid-cols-2 gap-2">
+                {[
+                  { label: 'บัตรประชาชน',       ok: docStatus.idCard,    href: `/contracts/${contract?.id}?tab=documents` },
+                  { label: 'สัญญาเช่า',         ok: docStatus.contract,  href: `/contracts/${contract?.id}?tab=documents` },
+                  { label: 'Checklist ตอนเข้า', ok: docStatus.checklist, href: null },
+                  { label: 'LINE',              ok: docStatus.line,      href: null },
+                ].map(({ label, ok, href }) => {
+                  const inner = (
+                    <>
+                      <span className={`flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[10px] font-bold ${ok ? 'bg-green-200 text-green-700' : 'bg-red-200 text-red-600'}`}>
+                        {ok ? '✓' : '✗'}
+                      </span>
+                      <span className={`text-xs font-medium ${ok ? 'text-green-800' : 'text-red-700'}`}>{label}</span>
+                    </>
+                  )
+                  const cls = `flex items-center gap-2 rounded-lg px-3 py-2 ${ok ? 'bg-green-50' : 'bg-red-50'} ${href ? 'cursor-pointer hover:opacity-80' : ''}`
+                  return href
+                    ? <Link key={label} to={href} className={cls}>{inner}</Link>
+                    : <div key={label} className={cls}>{inner}</div>
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>

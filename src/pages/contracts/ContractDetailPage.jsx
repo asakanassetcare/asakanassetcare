@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { ChevronRight, CheckCircle, XCircle, LogIn, Upload, UserCog, LogOut, Wallet } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
@@ -14,27 +14,36 @@ import MoveOutFormModal from '../../components/move-outs/MoveOutFormModal'
 import { PageSpinner } from '../../components/ui/Spinner'
 import PdfDownloadButton from '../../components/pdf/PdfDownloadButton'
 import AdvancePaymentReceiptPDF from '../../components/pdf/AdvancePaymentReceiptPDF'
+import ReceiptPDF from '../../components/pdf/ReceiptPDF'
 import { formatThaiDate, formatThaiDateTime } from '../../lib/date'
 import { useSettings } from '../../hooks/useSettings'
 
 const TABS = [
   { id: 'info',      label: 'ข้อมูล' },
   { id: 'invoices',  label: 'ใบแจ้งหนี้' },
+  { id: 'receipts',  label: 'ใบเสร็จ' },
   { id: 'documents', label: 'เอกสาร' },
 ]
 
 export default function ContractDetailPage() {
   const { contractId } = useParams()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const { profile, role } = useAuth()
 
   const [contract,       setContract]       = useState(null)
   const [invoices,       setInvoices]       = useState([])
+  const [receipts,       setReceipts]       = useState([])
+  const [rcptTypeFilter, setRcptTypeFilter] = useState('all')
+  const [rcptYearFilter, setRcptYearFilter] = useState('all')
   const [initialInvoice,  setInitialInvoice]  = useState(null)
   const [prorateInvoice,  setProrateInvoice]  = useState(null)
   const [staffList,      setStaffList]      = useState([])
   const [loading,   setLoading]   = useState(true)
-  const [tab,       setTab]       = useState('info')
+  const [tab,       setTab]       = useState(() => {
+    const t = searchParams.get('tab')
+    return ['info','invoices','receipts','documents'].includes(t) ? t : 'info'
+  })
 
   // Approve
   const [approving,  setApproving]  = useState(false)
@@ -77,6 +86,7 @@ export default function ContractDetailPage() {
 
   useEffect(() => { fetchContract() }, [contractId])
   useEffect(() => { if (tab === 'invoices') fetchInvoices() }, [tab])
+  useEffect(() => { if (tab === 'receipts') fetchReceipts() }, [tab])
 
   async function fetchContract() {
     const [{ data }, { data: initInv }, { data: prorateInv }] = await Promise.all([
@@ -141,6 +151,20 @@ export default function ContractDetailPage() {
       .eq('contract_id', contractId)
       .order('created_at', { ascending: false })
     setInvoices(data ?? [])
+  }
+
+  async function fetchReceipts() {
+    const { data: invIds } = await supabase
+      .from('invoices').select('id').eq('contract_id', contractId)
+    const ids = invIds?.map(i => i.id) ?? []
+    if (!ids.length) { setReceipts([]); return }
+    const { data } = await supabase
+      .from('payments')
+      .select('id, amount, paid_date, bank_name, bank_reference, approved_at, invoices(id, invoice_number, invoice_type, billing_period)')
+      .in('invoice_id', ids)
+      .eq('status', 'approved')
+      .order('approved_at', { ascending: false })
+    setReceipts(data ?? [])
   }
 
   async function fetchStaffList() {
@@ -578,6 +602,78 @@ export default function ContractDetailPage() {
           )}
         </div>
       )}
+
+      {/* Tab: Receipts */}
+      {tab === 'receipts' && (() => {
+        const years = [...new Set(receipts.map(p => p.paid_date?.slice(0, 4)).filter(Boolean))].sort((a, b) => b - a)
+        const types = [...new Set(receipts.map(p => p.invoices?.invoice_type).filter(Boolean))]
+        const filtered = receipts.filter(p =>
+          (rcptYearFilter === 'all' || p.paid_date?.startsWith(rcptYearFilter)) &&
+          (rcptTypeFilter === 'all' || p.invoices?.invoice_type === rcptTypeFilter)
+        )
+        return (
+          <div className="max-w-3xl space-y-3">
+            {receipts.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                {years.length > 1 && (
+                  <div className="flex gap-1">
+                    {['all', ...years].map(y => (
+                      <button key={y}
+                        onClick={() => setRcptYearFilter(y)}
+                        className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${rcptYearFilter === y ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                        {y === 'all' ? 'ทุกปี' : `${Number(y) + 543}`}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {types.length > 1 && (
+                  <div className="flex gap-1">
+                    {['all', ...types].map(t => (
+                      <button key={t}
+                        onClick={() => setRcptTypeFilter(t)}
+                        className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${rcptTypeFilter === t ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}>
+                        {t === 'all' ? 'ทุกประเภท' : (INVOICE_TYPE_LABEL[t] ?? t)}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            {filtered.length === 0 ? (
+              <p className="py-8 text-center text-sm text-gray-400">ไม่มีใบเสร็จในเงื่อนไขที่เลือก</p>
+            ) : (
+              <div className="rounded-xl border border-gray-100 bg-white overflow-hidden">
+                {filtered.map((pmt, i) => (
+                  <div key={pmt.id} className={`flex items-center justify-between px-4 py-3.5 ${i > 0 ? 'border-t border-gray-50' : ''}`}>
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900">{pmt.invoices?.invoice_number ?? '—'}</p>
+                      <p className="text-xs text-gray-400">
+                        {INVOICE_TYPE_LABEL[pmt.invoices?.invoice_type] ?? pmt.invoices?.invoice_type ?? ''}
+                        {pmt.invoices?.billing_period ? ` · ${pmt.invoices.billing_period}` : ''}
+                        {pmt.bank_name ? ` · ${pmt.bank_name}` : ''}
+                        {pmt.bank_reference ? ` · ${pmt.bank_reference}` : ''}
+                      </p>
+                      <p className="text-xs text-gray-400">ชำระ {formatThaiDate(pmt.paid_date)}</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <span className="text-sm font-semibold text-gray-900">฿{Number(pmt.amount).toLocaleString('th-TH')}</span>
+                      <button
+                        onClick={async () => {
+                          const { data } = await supabase.storage.from('payment-slips').createSignedUrl(`receipts/${pmt.id}.pdf`, 3600)
+                          if (data?.signedUrl) window.open(data.signedUrl, '_blank')
+                        }}
+                        className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
+                      >
+                        ดาวน์โหลด
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )
+      })()}
 
       {/* Tab: Documents */}
       {tab === 'documents' && (
