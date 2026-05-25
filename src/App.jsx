@@ -24,6 +24,7 @@ import BookingDetailPage from './pages/bookings/BookingDetailPage'
 import ContractsPage from './pages/contracts/ContractsPage'
 import ContractDetailPage from './pages/contracts/ContractDetailPage'
 import ContractPrintPage from './pages/contracts/ContractPrintPage'
+import ContractQuotationPage from './pages/contracts/ContractQuotationPage'
 import InvoicesPage from './pages/invoices/InvoicesPage'
 import InvoiceDetailPage from './pages/invoices/InvoiceDetailPage'
 import PaymentsPage from './pages/payments/PaymentsPage'
@@ -52,7 +53,8 @@ export default function App() {
             <Route path="/login" element={<Login />} />
             <Route path="/line-register" element={<LineRegisterPage />} />
             <Route path="/line-slip" element={<LineSlipPage />} />
-            <Route path="/contracts/:contractId/print" element={<RequireAuth><ContractPrintPage /></RequireAuth>} />
+            <Route path="/contracts/:contractId/print"     element={<RequireAuth><ContractPrintPage /></RequireAuth>} />
+            <Route path="/contracts/:contractId/quotation" element={<RequireAuth><ContractQuotationPage /></RequireAuth>} />
             <Route
               path="/"
               element={

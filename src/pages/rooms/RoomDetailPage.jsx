@@ -608,7 +608,16 @@ export default function RoomDetailPage() {
           <div className="rounded-xl border border-gray-100 bg-white p-5 shadow-sm">
             <h2 className="mb-3 text-sm font-semibold text-gray-700">สถานะห้อง</h2>
             <div className="flex flex-col gap-2">
-              <StatusCheck ok={room.is_rentable !== false} label="พร้อมปล่อยเช่า"       failLabel="ปิดใช้งาน" />
+              <StatusCheck
+                ok={room.status === 'available'}
+                label="พร้อมปล่อยเช่า"
+                failLabel={
+                  room.status === 'occupied'    ? 'มีผู้เช่าอยู่' :
+                  room.status === 'reserved'    ? 'จองแล้ว' :
+                  room.status === 'maintenance' ? 'อยู่ระหว่างซ่อมบำรุง' :
+                  'ปิดใช้งาน'
+                }
+              />
               <StatusCheck ok={overdueTotal === 0}         label="ไม่มีค้างชำระ"       failLabel="มีค้างชำระ" />
               <StatusCheck ok={!moveOut}                   label="ไม่มีแจ้งออกค้างอยู่" failLabel="มีการแจ้งออกค้างอยู่" />
               <StatusCheck ok={contract?.status === 'active' || room.status !== 'occupied'} label="สัญญาถูกต้อง" failLabel="สัญญาไม่ถูกต้อง" />

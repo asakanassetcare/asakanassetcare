@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { Upload } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
 import Modal from '../ui/Modal'
@@ -8,17 +9,39 @@ import Select from '../ui/Select'
 import Textarea from '../ui/Textarea'
 import TenantSelect from '../shared/TenantSelect'
 
+const BANKS = [
+  { value: '',               label: '— เลือกธนาคาร —' },
+  { value: 'กสิกรไทย',      label: 'ธ. กสิกรไทย (KBank)' },
+  { value: 'ไทยพาณิชย์',    label: 'ธ. ไทยพาณิชย์ (SCB)' },
+  { value: 'กรุงเทพ',       label: 'ธ. กรุงเทพ (BBL)' },
+  { value: 'กรุงไทย',       label: 'ธ. กรุงไทย (KTB)' },
+  { value: 'กรุงศรีอยุธยา', label: 'ธ. กรุงศรีอยุธยา (BAY)' },
+  { value: 'ทหารไทยธนชาต',  label: 'ธ. ทหารไทยธนชาต (TTB)' },
+  { value: 'พร้อมเพย์',     label: 'พร้อมเพย์ / PromptPay' },
+  { value: 'อื่นๆ',          label: 'อื่นๆ' },
+]
+
 export default function BookingFormModal({ open, onClose, onSaved, prefillRoomId }) {
   const { profile } = useAuth()
-  const [rooms,  setRooms]  = useState([])
-  const [form,   setForm]   = useState({ room_id: '', tenant_id: '', deposit_amount: '', note: '' })
-  const [saving, setSaving] = useState(false)
-  const [error,  setError]  = useState('')
+  const [rooms,    setRooms]    = useState([])
+  const [form,     setForm]     = useState({
+    room_id: '', tenant_id: '', deposit_amount: '', note: '',
+    paid_date: new Date().toISOString().slice(0, 10),
+    bank_name: '', bank_reference: '',
+  })
+  const [slipFile, setSlipFile] = useState(null)
+  const [saving,   setSaving]   = useState(false)
+  const [error,    setError]    = useState('')
 
   useEffect(() => {
     if (!open) return
     fetchRooms()
-    setForm({ room_id: prefillRoomId ?? '', tenant_id: '', deposit_amount: '', note: '' })
+    setForm({
+      room_id: prefillRoomId ?? '', tenant_id: '', deposit_amount: '', note: '',
+      paid_date: new Date().toISOString().slice(0, 10),
+      bank_name: '', bank_reference: '',
+    })
+    setSlipFile(null)
     setError('')
   }, [open, prefillRoomId])
 
@@ -28,7 +51,7 @@ export default function BookingFormModal({ open, onClose, onSaved, prefillRoomId
       .eq('status', 'available')
       .eq('is_rentable', true)
       .order('room_number')
-    let list = rms ?? []
+    const list = rms ?? []
     if (prefillRoomId && !list.find(r => r.id === prefillRoomId)) {
       setForm(p => ({ ...p, room_id: '' }))
       setError('ห้องนี้ไม่พร้อมให้จอง')
@@ -40,22 +63,43 @@ export default function BookingFormModal({ open, onClose, onSaved, prefillRoomId
 
   async function handleSave(e) {
     e.preventDefault()
-    if (!form.room_id)   { setError('กรุณาเลือกห้อง'); return }
+    if (!form.room_id)      { setError('กรุณาเลือกห้อง'); return }
     if (!rooms.some(r => r.value === form.room_id)) { setError('ห้องนี้ไม่พร้อมให้จอง'); return }
-    if (!form.tenant_id) { setError('กรุณาเลือกผู้เช่า'); return }
-    setError('')
-    setSaving(true)
+    if (!form.tenant_id)    { setError('กรุณาเลือกผู้เช่า'); return }
+    if (!form.paid_date)    { setError('กรุณากรอกวันที่ชำระเงินจอง'); return }
+    if (!slipFile)          { setError('กรุณาแนบสลิปการโอน'); return }
 
-    const { error } = await supabase.from('bookings').insert({
-      room_id:        form.room_id,
-      tenant_id:      form.tenant_id,
-      deposit_amount: Number(form.deposit_amount) || 0,
-      note:           form.note.trim() || null,
-      created_by:     profile.id,
+    setSaving(true)
+    setError('')
+
+    // Upload slip first using room_id + timestamp as path
+    const ext  = slipFile.name.split('.').pop()
+    const path = `bookings/${form.room_id}_${Date.now()}.${ext}`
+    const { data: sd, error: se } = await supabase.storage
+      .from('payment-slips').upload(path, slipFile, { upsert: false })
+    if (se) { setSaving(false); setError('อัปโหลดสลิปไม่สำเร็จ: ' + se.message); return }
+
+    // Insert booking with all fields at once
+    const { error: insertErr } = await supabase.from('bookings').insert({
+      room_id:             form.room_id,
+      tenant_id:           form.tenant_id,
+      deposit_amount:      Number(form.deposit_amount) || 0,
+      note:                form.note.trim() || null,
+      created_by:          profile.id,
+      slip_url:            sd.path,
+      paid_date:           form.paid_date,
+      bank_name:           form.bank_name || null,
+      bank_reference:      form.bank_reference.trim() || null,
+      payment_recorded_by: profile.id,
+      payment_recorded_at: new Date().toISOString(),
     })
 
+    if (insertErr) { setSaving(false); setError(insertErr.message); return }
+
+    // Update room status to reserved
+    await supabase.from('rooms').update({ status: 'reserved' }).eq('id', form.room_id)
+
     setSaving(false)
-    if (error) { setError(error.message); return }
     onSaved?.()
     onClose()
   }
@@ -73,35 +117,86 @@ export default function BookingFormModal({ open, onClose, onSaved, prefillRoomId
       }
     >
       <form id="booking-form" onSubmit={handleSave} className="flex flex-col gap-4">
-        <Select
-          label="ห้อง (เฉพาะห้องว่าง)"
-          required
-          options={rooms}
-          placeholder="เลือกห้อง"
-          value={form.room_id}
-          onChange={e => set('room_id', e.target.value)}
-          disabled={!!prefillRoomId && rooms.some(r => r.value === prefillRoomId)}
-        />
-        <TenantSelect
-          label="ผู้เช่า"
-          required
-          value={form.tenant_id}
-          onChange={id => set('tenant_id', id)}
-        />
-        <Input
-          label="เงินจอง (฿)"
-          type="number"
-          min={0}
-          value={form.deposit_amount}
-          onChange={e => set('deposit_amount', e.target.value)}
-          placeholder="5000"
-        />
-        <Textarea
-          label="หมายเหตุ"
-          rows={2}
-          value={form.note}
-          onChange={e => set('note', e.target.value)}
-        />
+
+        {/* ── ข้อมูลการจอง ── */}
+        <div className="flex flex-col gap-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">ข้อมูลการจอง</p>
+          <Select
+            label="ห้อง (เฉพาะห้องว่าง)"
+            required
+            options={rooms}
+            placeholder="เลือกห้อง"
+            value={form.room_id}
+            onChange={e => set('room_id', e.target.value)}
+            disabled={!!prefillRoomId && rooms.some(r => r.value === prefillRoomId)}
+          />
+          <TenantSelect
+            label="ผู้เช่า"
+            required
+            value={form.tenant_id}
+            onChange={id => set('tenant_id', id)}
+          />
+          <Input
+            label="เงินจอง (฿)"
+            type="number"
+            min={0}
+            value={form.deposit_amount}
+            onChange={e => set('deposit_amount', e.target.value)}
+            placeholder="5000"
+          />
+          <Textarea
+            label="หมายเหตุ"
+            rows={2}
+            value={form.note}
+            onChange={e => set('note', e.target.value)}
+          />
+        </div>
+
+        <div className="border-t border-gray-100" />
+
+        {/* ── บันทึกการชำระเงินจอง ── */}
+        <div className="flex flex-col gap-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">การชำระเงินจอง</p>
+          <Input
+            label="วันที่ชำระ"
+            type="date"
+            required
+            value={form.paid_date}
+            onChange={e => set('paid_date', e.target.value)}
+          />
+          <div className="grid grid-cols-2 gap-3">
+            <Select
+              label="ธนาคาร"
+              options={BANKS}
+              value={form.bank_name}
+              onChange={e => set('bank_name', e.target.value)}
+            />
+            <Input
+              label="เลขที่โอน"
+              value={form.bank_reference}
+              onChange={e => set('bank_reference', e.target.value)}
+              placeholder="xxxx-xxxx-xxxx"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-sm font-medium text-gray-700">
+              แนบสลิป <span className="text-red-500">*</span>
+            </label>
+            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-gray-300 px-4 py-3 hover:border-blue-400 transition-colors">
+              <Upload className="h-4 w-4 text-gray-400 shrink-0" />
+              <span className="text-sm text-gray-500 truncate">
+                {slipFile ? slipFile.name : 'เลือกไฟล์ภาพ / PDF'}
+              </span>
+              <input
+                type="file"
+                accept="image/*,application/pdf"
+                className="hidden"
+                onChange={e => setSlipFile(e.target.files?.[0] ?? null)}
+              />
+            </label>
+          </div>
+        </div>
+
         {error && <div className="rounded-lg bg-red-50 px-3 py-2.5 text-sm text-red-600">{error}</div>}
       </form>
     </Modal>

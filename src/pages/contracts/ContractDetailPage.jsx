@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { ChevronRight, CheckCircle, XCircle, LogIn, Upload, UserCog, LogOut } from 'lucide-react'
+import { ChevronRight, CheckCircle, XCircle, LogIn, Upload, UserCog, LogOut, Wallet } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
 import Button from '../../components/ui/Button'
@@ -12,6 +12,8 @@ import Textarea from '../../components/ui/Textarea'
 import DocumentUpload from '../../components/shared/DocumentUpload'
 import MoveOutFormModal from '../../components/move-outs/MoveOutFormModal'
 import { PageSpinner } from '../../components/ui/Spinner'
+import PdfDownloadButton from '../../components/pdf/PdfDownloadButton'
+import AdvancePaymentReceiptPDF from '../../components/pdf/AdvancePaymentReceiptPDF'
 import { formatThaiDate, formatThaiDateTime } from '../../lib/date'
 import { useSettings } from '../../hooks/useSettings'
 
@@ -64,6 +66,15 @@ export default function ContractDetailPage() {
   // Document status
   const [docStatus, setDocStatus] = useState({ idCard: false, contract: false })
 
+  // Advance payment
+  const [advancePayments,  setAdvancePayments]  = useState([])
+  const [advanceModal,     setAdvanceModal]     = useState(false)
+  const [advanceAmount,    setAdvanceAmount]    = useState('')
+  const [advanceSlipFile,  setAdvanceSlipFile]  = useState(null)
+  const [advanceNote,      setAdvanceNote]      = useState('')
+  const [advanceSaving,    setAdvanceSaving]    = useState(false)
+  const [advanceErr,       setAdvanceErr]       = useState('')
+
   useEffect(() => { fetchContract() }, [contractId])
   useEffect(() => { if (tab === 'invoices') fetchInvoices() }, [tab])
 
@@ -72,7 +83,7 @@ export default function ContractDetailPage() {
       supabase.from('contracts').select(`
         *,
         rooms(id, room_number, floor, ownership, base_rent, base_deposit, base_advance, buildings(id, name, project_id, projects(name))),
-        tenants(id, full_name, phone, email),
+        tenants(id, full_name, phone, email, line_user_id),
         profiles!assigned_staff_id(id, full_name)
       `).eq('id', contractId).single(),
       supabase.from('invoices')
@@ -103,7 +114,24 @@ export default function ContractDetailPage() {
     ])
     setDocStatus({ idCard: (tenantDocs?.length ?? 0) > 0, contract: (contractDocs?.length ?? 0) > 0 })
 
+    // Advance payments
+    const { data: advData } = await supabase
+      .from('contract_advance_payments')
+      .select('id, amount, slip_url, note, created_at, created_by')
+      .eq('contract_id', contractId)
+      .order('created_at')
+    setAdvancePayments(advData ?? [])
+
     setLoading(false)
+  }
+
+  function calcProrate(startDate, monthlyRent) {
+    if (!startDate || !monthlyRent) return 0
+    const dt = new Date(startDate)
+    const day = dt.getDate()
+    if (day === 1) return 0
+    const daysInMonth = new Date(dt.getFullYear(), dt.getMonth() + 1, 0).getDate()
+    return Math.ceil((daysInMonth - day + 1) / daysInMonth * Number(monthlyRent))
   }
 
   async function fetchInvoices() {
@@ -188,6 +216,48 @@ export default function ContractDetailPage() {
     fetchContract()
   }
 
+  async function handleSaveAdvance(e) {
+    e.preventDefault()
+    const amt = Number(advanceAmount)
+    if (!amt || amt <= 0) { setAdvanceErr('กรุณากรอกจำนวนเงิน'); return }
+    const maxAmt = calcMaxAdvance(c)
+    if (amt > maxAmt) { setAdvanceErr(`ยอดเกินกว่าที่ต้องชำระ (สูงสุด ฿${maxAmt.toLocaleString('th-TH')})`); return }
+    setAdvanceSaving(true); setAdvanceErr('')
+
+    let slipUrl = null
+    if (advanceSlipFile) {
+      const ext  = advanceSlipFile.name.split('.').pop()
+      const path = `advance/${contractId}_${Date.now()}.${ext}`
+      const { data: sd, error: se } = await supabase.storage.from('payment-slips').upload(path, advanceSlipFile)
+      if (se) { setAdvanceSaving(false); setAdvanceErr('อัปโหลดสลิปไม่สำเร็จ'); return }
+      slipUrl = sd.path
+    }
+
+    const { error } = await supabase.from('contract_advance_payments').insert({
+      contract_id: contractId,
+      amount:      amt,
+      slip_url:    slipUrl,
+      note:        advanceNote.trim() || null,
+      created_by:  profile.id,
+    })
+    setAdvanceSaving(false)
+    if (error) { setAdvanceErr(error.message); return }
+    setAdvanceModal(false)
+    setAdvanceAmount(''); setAdvanceSlipFile(null); setAdvanceNote('')
+    fetchContract()
+  }
+
+  function calcMaxAdvance(contract) {
+    if (!contract) return 0
+    const prorate = calcProrate(contract.contract_start_date, contract.monthly_rent)
+    const base = Number(contract.deposit_amount)
+                + Number(contract.advance_rent_amount)
+                + prorate
+                - Number(contract.booking_deposit_applied ?? 0)
+    const alreadyPaid = advancePayments.reduce((s, p) => s + Number(p.amount), 0)
+    return Math.max(0, base - alreadyPaid)
+  }
+
   const { settings } = useSettings()
 
   if (loading) return <PageSpinner />
@@ -265,6 +335,31 @@ export default function ContractDetailPage() {
           )}
           {moveInErr && <p className="text-sm text-red-600">{moveInErr}</p>}
 
+          {/* Advance payment — before approval only */}
+          {c.status === 'pending_approve' && isOperational && (
+            <Button
+              variant="secondary"
+              icon={<Wallet className="h-4 w-4" />}
+              onClick={() => { setAdvanceAmount(''); setAdvanceSlipFile(null); setAdvanceNote(''); setAdvanceErr(''); setAdvanceModal(true) }}
+            >
+              รับชำระล่วงหน้า
+              {advancePayments.length > 0 && (
+                <span className="ml-1.5 rounded-full bg-green-600 px-1.5 py-0.5 text-[10px] font-semibold text-white leading-none">
+                  {advancePayments.length}
+                </span>
+              )}
+            </Button>
+          )}
+
+          {/* Quotation — available before approval */}
+          {['pending_approve', 'approved', 'active'].includes(c.status) && (
+            <Button
+              variant="secondary"
+              onClick={() => window.open(`/contracts/${contractId}/quotation`, '_blank')}
+            >
+              ใบเสนอราคา
+            </Button>
+          )}
           {/* PDF */}
           <Button
             variant="secondary"
@@ -376,14 +471,71 @@ export default function ContractDetailPage() {
             <p className="text-sm font-medium text-gray-900">{c.profiles?.full_name ?? '—'}</p>
           </Card>
 
+          {/* Advance Payments */}
+          {(c.status === 'pending_approve' || advancePayments.length > 0) && (
+            <Card className="lg:col-span-2">
+              <div className="mb-3 flex items-center justify-between">
+                <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">ชำระล่วงหน้า (ก่อนอนุมัติ)</p>
+                {c.status === 'pending_approve' && isOperational && (
+                  <button
+                    onClick={() => { setAdvanceAmount(''); setAdvanceSlipFile(null); setAdvanceNote(''); setAdvanceErr(''); setAdvanceModal(true) }}
+                    className="text-xs text-blue-600 hover:underline"
+                  >
+                    + บันทึกรายการ
+                  </button>
+                )}
+              </div>
+              {advancePayments.length === 0 ? (
+                <p className="text-sm text-gray-400">ยังไม่มีรายการ</p>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {advancePayments.map((ap, i) => (
+                    <div key={ap.id} className="flex items-center justify-between rounded-lg bg-green-50 px-3 py-2">
+                      <div>
+                        <p className="text-sm font-semibold text-green-800">฿{Number(ap.amount).toLocaleString('th-TH')}</p>
+                        {ap.note && <p className="text-xs text-gray-500">{ap.note}</p>}
+                        <p className="text-xs text-gray-400">{formatThaiDateTime(ap.created_at)}</p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        {ap.slip_url && (
+                          <button
+                            onClick={async () => {
+                              const { data } = await supabase.storage.from('payment-slips').createSignedUrl(ap.slip_url, 3600)
+                              if (data?.signedUrl) window.open(data.signedUrl, '_blank')
+                            }}
+                            className="text-xs text-blue-600 hover:underline"
+                          >
+                            ดูสลิป
+                          </button>
+                        )}
+                        <PdfDownloadButton
+                          document={<AdvancePaymentReceiptPDF advancePayment={ap} contract={c} company={settings?.company ?? {}} />}
+                          filename={`advance_${c.contract_number}_${i + 1}.pdf`}
+                          label="พิมพ์ใบรับเงิน"
+                          size="sm"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                  <div className="flex justify-end border-t border-gray-100 pt-2">
+                    <p className="text-sm font-semibold text-gray-700">
+                      รวม ฿{advancePayments.reduce((s, p) => s + Number(p.amount), 0).toLocaleString('th-TH')}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </Card>
+          )}
+
           {/* Document Status */}
           <Card className="lg:col-span-2">
             <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400">สถานะเอกสาร</p>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-4 gap-3">
               {[
                 { label: 'บัตรประชาชน',       ok: docStatus.idCard },
                 { label: 'สัญญาเช่า',         ok: docStatus.contract },
                 { label: 'Checklist ตอนเข้า', ok: !!c.checklist_in_url },
+                { label: 'LINE',              ok: !!c.tenants?.line_user_id },
               ].map(({ label, ok }) => (
                 <div key={label} className={`flex items-center gap-2.5 rounded-lg px-3 py-2.5 ${ok ? 'bg-green-50' : 'bg-red-50'}`}>
                   <span className={`flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-xs font-bold ${ok ? 'bg-green-200 text-green-700' : 'bg-red-200 text-red-600'}`}>
@@ -545,6 +697,85 @@ export default function ContractDetailPage() {
           </div>
           {moveInErr && <p className="text-sm text-red-600">{moveInErr}</p>}
         </div>
+      </Modal>
+
+      {/* Advance Payment Modal */}
+      <Modal
+        open={advanceModal}
+        onClose={() => setAdvanceModal(false)}
+        title="รับชำระล่วงหน้า"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setAdvanceModal(false)}>ยกเลิก</Button>
+            <Button loading={advanceSaving} onClick={handleSaveAdvance}>บันทึก</Button>
+          </>
+        }
+      >
+        {(() => {
+          const prorate   = calcProrate(c.contract_start_date, c.monthly_rent)
+          const deposit   = Number(c.deposit_amount)
+          const advance   = Number(c.advance_rent_amount)
+          const booking   = Number(c.booking_deposit_applied ?? 0)
+          const totalExp  = deposit + advance + prorate - booking
+          const paidSoFar = advancePayments.reduce((s, p) => s + Number(p.amount), 0)
+          const remaining = Math.max(0, totalExp - paidSoFar)
+          return (
+            <div className="flex flex-col gap-4">
+              {/* Breakdown */}
+              <div className="rounded-lg bg-gray-50 px-4 py-3 text-sm">
+                <p className="mb-2 font-medium text-gray-700">ยอดที่ต้องชำระ (โดยประมาณ)</p>
+                <div className="flex flex-col gap-1 text-gray-600">
+                  <div className="flex justify-between"><span>เงินประกัน</span><span>฿{deposit.toLocaleString('th-TH')}</span></div>
+                  <div className="flex justify-between"><span>ค่าเช่าล่วงหน้า</span><span>฿{advance.toLocaleString('th-TH')}</span></div>
+                  {prorate > 0 && <div className="flex justify-between"><span>ค่าเช่า prorate</span><span>฿{prorate.toLocaleString('th-TH')}</span></div>}
+                  {booking > 0 && <div className="flex justify-between text-green-600"><span>หักเงินจอง</span><span>-฿{booking.toLocaleString('th-TH')}</span></div>}
+                  {paidSoFar > 0 && <div className="flex justify-between text-blue-600"><span>รับมาแล้ว</span><span>-฿{paidSoFar.toLocaleString('th-TH')}</span></div>}
+                  <div className="mt-1 flex justify-between border-t border-gray-200 pt-1 font-semibold text-gray-800">
+                    <span>คงเหลือสูงสุด</span><span>฿{remaining.toLocaleString('th-TH')}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Amount input */}
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-gray-700">
+                  จำนวนเงินที่รับ <span className="text-red-500">*</span>
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={remaining}
+                  value={advanceAmount}
+                  onChange={e => setAdvanceAmount(e.target.value)}
+                  placeholder={`สูงสุด ฿${remaining.toLocaleString('th-TH')}`}
+                  className="h-9 w-full rounded-lg border border-gray-300 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+
+              {/* Slip upload */}
+              <div>
+                <label className="mb-1.5 block text-sm font-medium text-gray-700">แนบสลิป</label>
+                <input
+                  type="file"
+                  accept="image/*,application/pdf"
+                  onChange={e => setAdvanceSlipFile(e.target.files?.[0] ?? null)}
+                  className="block w-full text-sm text-gray-500 file:mr-3 file:rounded-lg file:border-0 file:bg-blue-50 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-blue-700 hover:file:bg-blue-100"
+                />
+              </div>
+
+              {/* Note */}
+              <Textarea
+                label="หมายเหตุ"
+                rows={2}
+                value={advanceNote}
+                onChange={e => setAdvanceNote(e.target.value)}
+                placeholder="เช่น โอนผ่านพร้อมเพย์"
+              />
+
+              {advanceErr && <p className="text-sm text-red-600">{advanceErr}</p>}
+            </div>
+          )
+        })()}
       </Modal>
 
       {/* Move-out Modal */}

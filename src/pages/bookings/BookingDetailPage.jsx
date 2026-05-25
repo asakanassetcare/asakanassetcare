@@ -1,18 +1,34 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { ChevronRight, FileText, X } from 'lucide-react'
+import { ChevronRight, FileText, X, Upload, CreditCard } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
+import { useSettings } from '../../hooks/useSettings'
 import Button from '../../components/ui/Button'
 import Card from '../../components/ui/Card'
 import Badge from '../../components/ui/Badge'
 import Modal from '../../components/ui/Modal'
+import Input from '../../components/ui/Input'
 import Select from '../../components/ui/Select'
 import Textarea from '../../components/ui/Textarea'
 import { PageSpinner } from '../../components/ui/Spinner'
 import { formatThaiDate, formatThaiDateTime } from '../../lib/date'
 import { isAtLeast } from '../../lib/permissions'
 import ContractFormModal from '../../components/contracts/ContractFormModal'
+import PdfDownloadButton from '../../components/pdf/PdfDownloadButton'
+import BookingReceiptPDF from '../../components/pdf/BookingReceiptPDF'
+
+const BANKS = [
+  { value: '',              label: '— เลือกธนาคาร —' },
+  { value: 'กสิกรไทย',     label: 'ธ. กสิกรไทย (KBank)' },
+  { value: 'ไทยพาณิชย์',   label: 'ธ. ไทยพาณิชย์ (SCB)' },
+  { value: 'กรุงเทพ',      label: 'ธ. กรุงเทพ (BBL)' },
+  { value: 'กรุงไทย',      label: 'ธ. กรุงไทย (KTB)' },
+  { value: 'กรุงศรีอยุธยา',label: 'ธ. กรุงศรีอยุธยา (BAY)' },
+  { value: 'ทหารไทยธนชาต', label: 'ธ. ทหารไทยธนชาต (TTB)' },
+  { value: 'พร้อมเพย์',    label: 'พร้อมเพย์ / PromptPay' },
+  { value: 'อื่นๆ',         label: 'อื่นๆ' },
+]
 
 const DEPOSIT_ACTION_OPTS = [
   { value: 'refunded', label: 'คืนเงินจองให้ผู้เช่า' },
@@ -21,19 +37,30 @@ const DEPOSIT_ACTION_OPTS = [
 
 export default function BookingDetailPage() {
   const { bookingId } = useParams()
-  const navigate = useNavigate()
+  const navigate      = useNavigate()
   const { profile, role } = useAuth()
+  const { settings }  = useSettings()
 
   const [booking, setBooking] = useState(null)
   const [loading, setLoading] = useState(true)
 
-  const [cancelModal,    setCancelModal]    = useState(false)
-  const [cancelReason,   setCancelReason]   = useState('')
-  const [depositAction,  setDepositAction]  = useState('refunded')
-  const [cancelling,     setCancelling]     = useState(false)
-  const [cancelError,    setCancelError]    = useState('')
+  // Cancel
+  const [cancelModal,   setCancelModal]   = useState(false)
+  const [cancelReason,  setCancelReason]  = useState('')
+  const [depositAction, setDepositAction] = useState('refunded')
+  const [cancelling,    setCancelling]    = useState(false)
+  const [cancelError,   setCancelError]   = useState('')
 
+  // Contract
   const [contractModal, setContractModal] = useState(false)
+
+  // Payment recording
+  const [payModal,      setPayModal]      = useState(false)
+  const [payForm,       setPayForm]       = useState({ paid_date: '', bank_name: '', bank_reference: '' })
+  const [slipFile,      setSlipFile]      = useState(null)
+  const [slipSignedUrl, setSlipSignedUrl] = useState(null)
+  const [paying,        setPaying]        = useState(false)
+  const [payError,      setPayError]      = useState('')
 
   useEffect(() => { fetchBooking() }, [bookingId])
 
@@ -45,13 +72,64 @@ export default function BookingDetailPage() {
         rooms(id, room_number, floor, base_rent, base_deposit, base_advance, ownership, status_color, status,
               buildings(id, name, project_id, projects(name))),
         tenants(id, full_name, phone, email),
-        profiles!created_by(full_name)
+        profiles!created_by(full_name),
+        payment_recorder:profiles!payment_recorded_by(full_name)
       `)
       .eq('id', bookingId)
       .single()
     if (!data) { navigate('/bookings'); return }
     setBooking(data)
+
+    if (data.slip_url) {
+      const { data: urlData } = await supabase.storage
+        .from('payment-slips')
+        .createSignedUrl(data.slip_url, 3600)
+      setSlipSignedUrl(urlData?.signedUrl ?? null)
+    }
+
     setLoading(false)
+  }
+
+  function openPayModal() {
+    setPayForm({
+      paid_date:      new Date().toISOString().slice(0, 10),
+      bank_name:      booking.bank_name      ?? '',
+      bank_reference: booking.bank_reference ?? '',
+    })
+    setSlipFile(null)
+    setPayError('')
+    setPayModal(true)
+  }
+
+  async function handleSavePayment(e) {
+    e.preventDefault()
+    if (!payForm.paid_date)          { setPayError('กรุณากรอกวันที่ชำระ'); return }
+    if (!slipFile && !booking.slip_url) { setPayError('กรุณาแนบสลิป'); return }
+    setPaying(true)
+
+    let slipUrl = booking.slip_url ?? null
+    if (slipFile) {
+      const ext  = slipFile.name.split('.').pop()
+      const path = `bookings/${bookingId}_${Date.now()}.${ext}`
+      const { data: sd, error: se } = await supabase.storage
+        .from('payment-slips').upload(path, slipFile, { upsert: false })
+      if (se) { setPaying(false); setPayError('อัปโหลดสลิปไม่สำเร็จ'); return }
+      slipUrl = sd.path
+    }
+
+    const { error } = await supabase.from('bookings').update({
+      slip_url:             slipUrl,
+      paid_date:            payForm.paid_date,
+      bank_name:            payForm.bank_name || null,
+      bank_reference:       payForm.bank_reference.trim() || null,
+      payment_recorded_by:  profile.id,
+      payment_recorded_at:  new Date().toISOString(),
+    }).eq('id', bookingId)
+
+    setPaying(false)
+    if (error) { setPayError(error.message); return }
+    setPayModal(false)
+    fetchBooking()
   }
 
   async function handleCancel() {
@@ -72,7 +150,9 @@ export default function BookingDetailPage() {
 
   if (loading) return <PageSpinner />
 
-  const canAct = booking.status === 'waiting' && isAtLeast(role, 'staff')
+  const canAct    = booking.status === 'waiting' && isAtLeast(role, 'staff')
+  const hasPaid   = !!booking.slip_url
+  const company   = settings?.company ?? {}
 
   return (
     <div>
@@ -92,23 +172,39 @@ export default function BookingDetailPage() {
           </div>
           <p className="mt-1 text-sm text-gray-500">สร้างเมื่อ {formatThaiDateTime(booking.created_at)}</p>
         </div>
-        {canAct && (
-          <div className="flex items-center gap-2 shrink-0">
-            <Button
-              icon={<FileText className="h-4 w-4" />}
-              onClick={() => setContractModal(true)}
-            >
-              แปลงเป็นสัญญา
-            </Button>
-            <Button
-              variant="danger"
-              icon={<X className="h-4 w-4" />}
-              onClick={() => { setCancelModal(true); setCancelError('') }}
-            >
-              ยกเลิกการจอง
-            </Button>
-          </div>
-        )}
+        <div className="flex items-center gap-2 shrink-0 flex-wrap justify-end">
+          {hasPaid && (
+            <PdfDownloadButton
+              document={<BookingReceiptPDF booking={booking} company={company} />}
+              filename={`booking_receipt_${booking.booking_number}.pdf`}
+              label="พิมพ์ใบรับเงินจอง"
+            />
+          )}
+          {canAct && (
+            <>
+              <Button
+                variant={hasPaid ? 'secondary' : 'default'}
+                icon={<CreditCard className="h-4 w-4" />}
+                onClick={openPayModal}
+              >
+                {hasPaid ? 'แก้ไขการชำระ' : 'บันทึกการชำระเงินจอง'}
+              </Button>
+              <Button
+                icon={<FileText className="h-4 w-4" />}
+                onClick={() => setContractModal(true)}
+              >
+                แปลงเป็นสัญญา
+              </Button>
+              <Button
+                variant="danger"
+                icon={<X className="h-4 w-4" />}
+                onClick={() => { setCancelModal(true); setCancelError('') }}
+              >
+                ยกเลิกการจอง
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2 max-w-3xl">
@@ -167,7 +263,118 @@ export default function BookingDetailPage() {
             )}
           </div>
         </Card>
+
+        {/* Payment record */}
+        {hasPaid && (
+          <Card className="lg:col-span-2">
+            <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400">การชำระเงินจอง</p>
+            <div className="flex items-start gap-4">
+              {slipSignedUrl && (
+                <button
+                  onClick={() => window.open(slipSignedUrl, '_blank')}
+                  className="shrink-0 h-20 w-20 rounded-lg border border-gray-200 overflow-hidden hover:opacity-80 transition-opacity"
+                >
+                  <img src={slipSignedUrl} alt="slip" className="h-full w-full object-cover" />
+                </button>
+              )}
+              <div className="grid grid-cols-2 gap-3 text-sm flex-1 sm:grid-cols-3">
+                <div>
+                  <p className="text-xs text-gray-400">วันที่ชำระ</p>
+                  <p className="font-medium">{formatThaiDate(booking.paid_date)}</p>
+                </div>
+                {booking.bank_name && (
+                  <div>
+                    <p className="text-xs text-gray-400">ธนาคาร</p>
+                    <p className="font-medium">{booking.bank_name}</p>
+                  </div>
+                )}
+                {booking.bank_reference && (
+                  <div>
+                    <p className="text-xs text-gray-400">เลขที่อ้างอิง</p>
+                    <p className="font-medium">{booking.bank_reference}</p>
+                  </div>
+                )}
+                {booking.payment_recorder?.full_name && (
+                  <div>
+                    <p className="text-xs text-gray-400">บันทึกโดย</p>
+                    <p className="font-medium">{booking.payment_recorder.full_name}</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </Card>
+        )}
       </div>
+
+      {/* Payment Modal */}
+      <Modal
+        open={payModal}
+        onClose={() => setPayModal(false)}
+        title="บันทึกการชำระเงินจอง"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setPayModal(false)}>ปิด</Button>
+            <Button form="pay-form" type="submit" loading={paying}>บันทึก</Button>
+          </>
+        }
+      >
+        <form id="pay-form" onSubmit={handleSavePayment} className="flex flex-col gap-4">
+          <div className="rounded-lg bg-blue-50 px-4 py-3">
+            <p className="text-xs text-blue-600">ยอดเงินจอง</p>
+            <p className="text-xl font-bold text-blue-700">฿{Number(booking.deposit_amount).toLocaleString('th-TH')}</p>
+          </div>
+          <Input
+            label="วันที่ชำระ"
+            type="date"
+            required
+            value={payForm.paid_date}
+            onChange={e => setPayForm(p => ({ ...p, paid_date: e.target.value }))}
+          />
+          <div className="grid grid-cols-2 gap-3">
+            <Select
+              label="ธนาคาร"
+              options={BANKS}
+              value={payForm.bank_name}
+              onChange={e => setPayForm(p => ({ ...p, bank_name: e.target.value }))}
+            />
+            <Input
+              label="เลขที่อ้างอิง"
+              value={payForm.bank_reference}
+              onChange={e => setPayForm(p => ({ ...p, bank_reference: e.target.value }))}
+              placeholder="xxxx-xxxx-xxxx"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-sm font-medium text-gray-700">
+              แนบสลิป {!booking.slip_url && <span className="text-red-500">*</span>}
+            </label>
+            {slipSignedUrl && !slipFile && (
+              <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 p-2">
+                <img
+                  src={slipSignedUrl}
+                  alt="slip"
+                  className="h-16 w-16 cursor-pointer rounded border object-cover hover:opacity-80"
+                  onClick={() => window.open(slipSignedUrl, '_blank')}
+                />
+                <p className="text-xs text-gray-500">สลิปที่แนบไว้แล้ว<br />เลือกไฟล์ใหม่เพื่อเปลี่ยน</p>
+              </div>
+            )}
+            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-gray-300 px-4 py-3 hover:border-blue-400 transition-colors">
+              <Upload className="h-4 w-4 text-gray-400" />
+              <span className="text-sm text-gray-500">
+                {slipFile ? slipFile.name : booking.slip_url ? 'เปลี่ยนสลิป (ไม่บังคับ)' : 'เลือกไฟล์ภาพ / PDF'}
+              </span>
+              <input
+                type="file"
+                accept="image/*,application/pdf"
+                className="hidden"
+                onChange={e => setSlipFile(e.target.files?.[0] ?? null)}
+              />
+            </label>
+          </div>
+          {payError && <p className="text-sm text-red-600">{payError}</p>}
+        </form>
+      </Modal>
 
       {/* Cancel Modal */}
       <Modal

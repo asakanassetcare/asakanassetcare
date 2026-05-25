@@ -1,4 +1,4 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { Search, X, CheckCircle, XCircle, BookCheck, ArrowRight, ImageIcon, Link2 } from 'lucide-react'
 import { pdf } from '@react-pdf/renderer'
@@ -16,6 +16,29 @@ import EmptyState from '../../components/ui/EmptyState'
 import { PageSpinner } from '../../components/ui/Spinner'
 import { formatThaiDate, formatThaiDateTime } from '../../lib/date'
 import { CreditCard, LogOut } from 'lucide-react'
+
+function SlipThumb({ path }) {
+  const [url, setUrl] = useState(null)
+  const fetched = useRef(false)
+  useEffect(() => {
+    if (!path || fetched.current) return
+    fetched.current = true
+    supabase.storage.from('payment-slips').createSignedUrl(path, 3600)
+      .then(({ data }) => { if (data?.signedUrl) setUrl(data.signedUrl) })
+  }, [path])
+  return (
+    <button
+      type="button"
+      onClick={e => { e.stopPropagation(); if (url) window.open(url, '_blank') }}
+      className="shrink-0 h-14 w-14 rounded-lg border border-gray-200 bg-gray-100 overflow-hidden hover:opacity-80 transition-opacity"
+    >
+      {url
+        ? <img src={url} alt="slip" className="h-full w-full object-cover" />
+        : <ImageIcon className="h-5 w-5 text-gray-300 m-auto mt-4" />
+      }
+    </button>
+  )
+}
 
 function isRecorded(item) {
   return item._type === 'payment' ? !!item.accounting_recorded_at : item.status === 'recorded'
@@ -538,11 +561,7 @@ export default function PaymentsPage() {
                     {/* Actions */}
                     <div className="flex items-center gap-2 shrink-0">
                       {item._type === 'payment' && item.slip_url && (
-                        <button onClick={async e => {
-                          e.stopPropagation()
-                          const { data } = await supabase.storage.from('payment-slips').createSignedUrl(item.slip_url, 3600)
-                          if (data?.signedUrl) window.open(data.signedUrl, '_blank')
-                        }} className="text-xs text-blue-600 hover:underline">สลิป</button>
+                        <SlipThumb path={item.slip_url} />
                       )}
                       {item._type === 'payment' && <Badge variant={item.status} />}
                       {canApprove && item._type === 'payment' && item.status === 'pending_approve' && (

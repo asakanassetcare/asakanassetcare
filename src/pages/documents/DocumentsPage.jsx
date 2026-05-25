@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Search, X, FileText, Receipt, Printer } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
@@ -6,6 +6,10 @@ import Badge from '../../components/ui/Badge'
 import EmptyState from '../../components/ui/EmptyState'
 import { PageSpinner } from '../../components/ui/Spinner'
 import { formatThaiDate } from '../../lib/date'
+import { useSettings } from '../../hooks/useSettings'
+import PdfDownloadButton from '../../components/pdf/PdfDownloadButton'
+import ReceiptPDF from '../../components/pdf/ReceiptPDF'
+import BookingReceiptPDF from '../../components/pdf/BookingReceiptPDF'
 
 const TABS = [
   { key: 'contracts', label: 'สัญญา' },
@@ -22,69 +26,175 @@ const TYPE_LABEL = {
   other:            'อื่นๆ',
 }
 
+const RECEIPT_FILTERS = [
+  { value: '',                  label: 'ทั้งหมด' },
+  { value: 'monthly_rent',     label: 'ค่าเช่ารายเดือน' },
+  { value: 'contract_initial', label: 'ประกัน+ล่วงหน้า' },
+  { value: 'booking_deposit',  label: 'เงินจอง' },
+  { value: 'addon',            label: 'ค่าบริการเสริม' },
+  { value: 'final_settlement', label: 'เคลียร์ Move-out' },
+  { value: 'other',            label: 'อื่นๆ' },
+]
+
 export default function DocumentsPage() {
   const navigate = useNavigate()
-  const [tab,       setTab]       = useState('contracts')
-  const [search,    setSearch]    = useState('')
-  const [contracts, setContracts] = useState([])
-  const [invoices,  setInvoices]  = useState([])
-  const [receipts,  setReceipts]  = useState([])
-  const [loading,   setLoading]   = useState(true)
+  const { settings } = useSettings()
+  const [tab,            setTab]            = useState('contracts')
+  const [search,         setSearch]         = useState('')
+  const [receiptType,    setReceiptType]    = useState('')
+  const [contracts,      setContracts]      = useState([])
+  const [invoices,       setInvoices]       = useState([])
+  const [pmtReceipts,    setPmtReceipts]    = useState([])   // approved payments
+  const [miscReceipts,   setMiscReceipts]   = useState([])   // old receipts table
+  const [bkgReceipts,    setBkgReceipts]    = useState([])   // paid bookings
+  const [loading,        setLoading]        = useState(true)
 
   useEffect(() => { fetchAll() }, [])
 
   async function fetchAll() {
-    const [{ data: cData }, { data: iData }, { data: rData }] = await Promise.all([
+    const [
+      { data: cData },
+      { data: iData },
+      { data: pmtData },
+      { data: miscData },
+      { data: bkgData },
+    ] = await Promise.all([
       supabase.from('contracts').select(`
         id, contract_number, status, contract_start_date, contract_end_date, monthly_rent, created_at,
         rooms(room_number, buildings(name)),
         tenants(full_name)
-      `).order('created_at', { ascending: false }).limit(200),
+      `).order('created_at', { ascending: false }).limit(500),
+
       supabase.from('invoices').select(`
         id, invoice_number, invoice_type, billing_period, total_amount, status, due_date, created_at,
         rooms(room_number, buildings(name)),
         tenants(full_name)
-      `).order('created_at', { ascending: false }).limit(200),
+      `).order('created_at', { ascending: false }).limit(500),
+
+      // Source 1: approved invoice payments
+      supabase.from('payments').select(`
+        id, amount, paid_date, bank_name, bank_reference, note, approved_at,
+        invoices(
+          id, invoice_number, invoice_type, billing_period, total_amount,
+          rooms(room_number, buildings(name)),
+          tenants(full_name, phone),
+          contracts(contract_number)
+        ),
+        recorder:profiles!recorded_by(full_name)
+      `).eq('status', 'approved').order('approved_at', { ascending: false }).limit(500),
+
+      // Source 2: miscellaneous receipts (repairs etc.)
       supabase.from('receipts').select(`
-        id, receipt_number, amount, description, payer_name, issued_at, status,
+        id, receipt_number, amount, description, payer_name, issued_at,
         issuer:profiles!issued_by(full_name)
-      `).order('issued_at', { ascending: false }).limit(200),
+      `).order('issued_at', { ascending: false }).limit(500),
+
+      // Source 3: paid booking deposits
+      supabase.from('bookings').select(`
+        id, booking_number, deposit_amount, paid_date, bank_name, bank_reference, payment_recorded_at,
+        rooms(room_number, buildings(name)),
+        tenants(full_name, phone),
+        recorder:profiles!payment_recorded_by(full_name)
+      `).not('paid_date', 'is', null).order('payment_recorded_at', { ascending: false }).limit(500),
     ])
+
     setContracts(cData ?? [])
     setInvoices(iData ?? [])
-    setReceipts(rData ?? [])
+    setPmtReceipts(pmtData ?? [])
+    setMiscReceipts(miscData ?? [])
+    setBkgReceipts(bkgData ?? [])
     setLoading(false)
   }
 
+  // Merge all receipt sources into a uniform list
+  const allReceipts = useMemo(() => {
+    const items = [
+      ...pmtReceipts.map(r => ({
+        _id:      r.id,
+        _source:  'payment',
+        _type:    r.invoices?.invoice_type ?? 'other',
+        _date:    r.paid_date,
+        _sort:    r.approved_at ?? r.paid_date,
+        _number:  `RCV-${r.invoices?.invoice_number ?? ''}`,
+        _label:   TYPE_LABEL[r.invoices?.invoice_type] ?? 'อื่นๆ',
+        _tenant:  r.invoices?.tenants?.full_name,
+        _building:r.invoices?.rooms?.buildings?.name,
+        _room:    r.invoices?.rooms?.room_number,
+        _period:  r.invoices?.billing_period,
+        _amount:  Number(r.amount),
+        _by:      r.recorder?.full_name,
+        _raw:     r,
+      })),
+      ...miscReceipts.map(r => ({
+        _id:      r.id,
+        _source:  'misc',
+        _type:    'other',
+        _date:    r.issued_at,
+        _sort:    r.issued_at,
+        _number:  r.receipt_number,
+        _label:   r.description ?? 'อื่นๆ',
+        _tenant:  r.payer_name,
+        _building:null,
+        _room:    null,
+        _period:  null,
+        _amount:  Number(r.amount),
+        _by:      r.issuer?.full_name,
+        _raw:     r,
+      })),
+      ...bkgReceipts.map(r => ({
+        _id:      r.id,
+        _source:  'booking',
+        _type:    'booking_deposit',
+        _date:    r.paid_date,
+        _sort:    r.payment_recorded_at ?? r.paid_date,
+        _number:  r.booking_number,
+        _label:   'เงินจอง',
+        _tenant:  r.tenants?.full_name,
+        _building:r.rooms?.buildings?.name,
+        _room:    r.rooms?.room_number,
+        _period:  null,
+        _amount:  Number(r.deposit_amount),
+        _by:      r.recorder?.full_name,
+        _raw:     r,
+      })),
+    ]
+    return items.sort((a, b) => new Date(b._sort) - new Date(a._sort))
+  }, [pmtReceipts, miscReceipts, bkgReceipts])
+
   const q = search.toLowerCase().trim()
 
-  const filteredContracts = !q
-    ? contracts.slice(0, 20)
-    : contracts.filter(c =>
-        c.contract_number?.toLowerCase().includes(q) ||
-        c.tenants?.full_name?.toLowerCase().includes(q) ||
-        c.rooms?.room_number?.toLowerCase().includes(q) ||
-        c.rooms?.buildings?.name?.toLowerCase().includes(q)
-      )
+  const filteredContracts = contracts.filter(c =>
+    !q ||
+    c.contract_number?.toLowerCase().includes(q) ||
+    c.tenants?.full_name?.toLowerCase().includes(q) ||
+    c.rooms?.room_number?.toLowerCase().includes(q) ||
+    c.rooms?.buildings?.name?.toLowerCase().includes(q)
+  )
 
-  const filteredInvoices = !q
-    ? invoices.slice(0, 20)
-    : invoices.filter(inv =>
-        inv.invoice_number?.toLowerCase().includes(q) ||
-        inv.tenants?.full_name?.toLowerCase().includes(q) ||
-        inv.rooms?.room_number?.toLowerCase().includes(q) ||
-        inv.rooms?.buildings?.name?.toLowerCase().includes(q)
-      )
+  const filteredInvoices = invoices.filter(inv =>
+    !q ||
+    inv.invoice_number?.toLowerCase().includes(q) ||
+    inv.tenants?.full_name?.toLowerCase().includes(q) ||
+    inv.rooms?.room_number?.toLowerCase().includes(q) ||
+    inv.rooms?.buildings?.name?.toLowerCase().includes(q)
+  )
 
-  const filteredReceipts = !q
-    ? receipts.slice(0, 20)
-    : receipts.filter(r =>
-        r.receipt_number?.toLowerCase().includes(q) ||
-        r.description?.toLowerCase().includes(q) ||
-        r.payer_name?.toLowerCase().includes(q)
-      )
+  const filteredReceipts = allReceipts.filter(r => {
+    const matchType = !receiptType || r._type === receiptType
+    const matchQ = !q ||
+      r._number?.toLowerCase().includes(q) ||
+      r._tenant?.toLowerCase().includes(q) ||
+      r._room?.toLowerCase().includes(q) ||
+      r._building?.toLowerCase().includes(q) ||
+      r._label?.toLowerCase().includes(q)
+    return matchType && matchQ
+  })
+
+  const showCount = (list) => `${list.length} รายการ`
 
   if (loading) return <PageSpinner />
+
+  const company = settings?.company ?? {}
 
   return (
     <div>
@@ -124,12 +234,27 @@ export default function DocumentsPage() {
         ))}
       </div>
 
+      {/* Receipt type filter */}
+      {tab === 'receipts' && (
+        <div className="mb-4 flex flex-wrap gap-2">
+          {RECEIPT_FILTERS.map(f => (
+            <button key={f.value} onClick={() => setReceiptType(f.value)}
+              className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                receiptType === f.value
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              {f.label}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Contracts */}
       {tab === 'contracts' && (
         <>
-          <p className="mb-3 text-sm text-gray-400">
-            {q ? `${filteredContracts.length} รายการ` : '20 รายการล่าสุด'}
-          </p>
+          <p className="mb-3 text-sm text-gray-400">{showCount(filteredContracts)}</p>
           {filteredContracts.length === 0 ? (
             <EmptyState icon={FileText} title="ไม่พบสัญญา" />
           ) : (
@@ -168,9 +293,7 @@ export default function DocumentsPage() {
       {/* Invoices */}
       {tab === 'invoices' && (
         <>
-          <p className="mb-3 text-sm text-gray-400">
-            {q ? `${filteredInvoices.length} รายการ` : '20 รายการล่าสุด'}
-          </p>
+          <p className="mb-3 text-sm text-gray-400">{showCount(filteredInvoices)}</p>
           {filteredInvoices.length === 0 ? (
             <EmptyState icon={Receipt} title="ไม่พบใบแจ้งหนี้" />
           ) : (
@@ -205,29 +328,54 @@ export default function DocumentsPage() {
       {/* Receipts */}
       {tab === 'receipts' && (
         <>
-          <p className="mb-3 text-sm text-gray-400">
-            {q ? `${filteredReceipts.length} รายการ` : '20 รายการล่าสุด'}
-          </p>
+          <p className="mb-3 text-sm text-gray-400">{showCount(filteredReceipts)}</p>
           {filteredReceipts.length === 0 ? (
             <EmptyState icon={Receipt} title="ไม่พบใบเสร็จรับเงิน" />
           ) : (
             <div className="flex flex-col gap-2">
               {filteredReceipts.map(r => (
-                <div key={r.id}
+                <div key={`${r._source}-${r._id}`}
                   className="flex items-center justify-between rounded-xl border border-gray-100 bg-white px-4 py-3.5"
                 >
-                  <div>
-                    <p className="text-sm font-semibold text-gray-900">{r.receipt_number}</p>
-                    {r.description && <p className="text-sm text-gray-700">{r.description}</p>}
-                    {r.payer_name && <p className="text-xs text-gray-500">ผู้ชำระ: {r.payer_name}</p>}
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-sm font-semibold text-gray-900">{r._number}</p>
+                      <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs text-gray-500">{r._label}</span>
+                    </div>
+                    <p className="text-xs text-gray-500">
+                      {[r._building && `${r._building}`, r._room && `ห้อง ${r._room}`, r._tenant].filter(Boolean).join(' · ')}
+                    </p>
                     <p className="text-xs text-gray-400">
-                      {formatThaiDate(r.issued_at)}
-                      {r.issuer?.full_name ? ` · โดย ${r.issuer.full_name}` : ''}
+                      {formatThaiDate(r._date)}
+                      {r._period ? ` · ${r._period}` : ''}
+                      {r._by ? ` · โดย ${r._by}` : ''}
                     </p>
                   </div>
-                  <span className="text-sm font-semibold text-green-700 shrink-0">
-                    ฿{Number(r.amount).toLocaleString('th-TH', { minimumFractionDigits: 2 })}
-                  </span>
+                  <div className="flex items-center gap-3 shrink-0">
+                    <span className="text-sm font-semibold text-green-700">
+                      ฿{r._amount.toLocaleString('th-TH')}
+                    </span>
+                    {r._source === 'payment' && r._raw.invoices && (
+                      <div onClick={e => e.stopPropagation()}>
+                        <PdfDownloadButton
+                          document={<ReceiptPDF payment={r._raw} invoice={r._raw.invoices} company={company} />}
+                          filename={`receipt_${r._raw.invoices.invoice_number}.pdf`}
+                          label="PDF"
+                          size="sm"
+                        />
+                      </div>
+                    )}
+                    {r._source === 'booking' && (
+                      <div onClick={e => e.stopPropagation()}>
+                        <PdfDownloadButton
+                          document={<BookingReceiptPDF booking={r._raw} company={company} />}
+                          filename={`booking_receipt_${r._raw.booking_number}.pdf`}
+                          label="PDF"
+                          size="sm"
+                        />
+                      </div>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { ChevronRight, CreditCard, XCircle, Upload, Loader2 } from 'lucide-react'
+import { ChevronRight, CreditCard, XCircle, Upload, Loader2, CheckCircle } from 'lucide-react'
+import { pdf } from '@react-pdf/renderer'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
 import Button from '../../components/ui/Button'
@@ -54,11 +55,21 @@ export default function InvoiceDetailPage() {
   const [loading,  setLoading]  = useState(true)
 
   // Payment recording modal
-  const [payModal,    setPayModal]    = useState(false)
-  const [payForm,     setPayForm]     = useState({ paid_date: '', bank_name: '', bank_reference: '', note: '' })
-  const [slipFile,    setSlipFile]    = useState(null)
-  const [paying,      setPaying]      = useState(false)
-  const [payError,    setPayError]    = useState('')
+  const [payModal,          setPayModal]          = useState(false)
+  const [payForm,           setPayForm]           = useState({ paid_date: '', bank_name: '', bank_reference: '', note: '' })
+  const [slipFile,          setSlipFile]          = useState(null)
+  const [existingSlipPath,  setExistingSlipPath]  = useState(null)
+  const [existingSlipUrl,   setExistingSlipUrl]   = useState(null)
+  const [paying,            setPaying]            = useState(false)
+  const [payError,          setPayError]          = useState('')
+
+  // Approve/reject payment
+  const [approvingId,  setApprovingId]  = useState(null)
+  const [rejectModal,  setRejectModal]  = useState(false)
+  const [rejectTarget, setRejectTarget] = useState(null)
+  const [rejectReason, setRejectReason] = useState('')
+  const [rejecting,    setRejecting]    = useState(false)
+  const [rejectErr,    setRejectErr]    = useState('')
 
   // Cancel modal
   const [cancelModal,  setCancelModal]  = useState(false)
@@ -87,20 +98,32 @@ export default function InvoiceDetailPage() {
     setLoading(false)
   }
 
-  function openPayModal() {
-    setPayForm({ paid_date: new Date().toISOString().slice(0, 10), bank_name: '', bank_reference: '', note: '' })
+  async function openPayModal() {
+    const pre = payments.find(p => p.status === 'pending_approve')
+    setPayForm({
+      paid_date:      pre?.paid_date      ?? new Date().toISOString().slice(0, 10),
+      bank_name:      pre?.bank_name      ?? '',
+      bank_reference: pre?.bank_reference ?? '',
+      note:           pre?.note           ?? '',
+    })
     setSlipFile(null)
     setPayError('')
+    setExistingSlipPath(pre?.slip_url ?? null)
+    setExistingSlipUrl(null)
+    if (pre?.slip_url) {
+      const { data } = await supabase.storage.from('payment-slips').createSignedUrl(pre.slip_url, 3600)
+      setExistingSlipUrl(data?.signedUrl ?? null)
+    }
     setPayModal(true)
   }
 
   async function handlePayment(e) {
     e.preventDefault()
     if (!payForm.paid_date) { setPayError('กรุณากรอกวันชำระ'); return }
-    if (!slipFile) { setPayError('กรุณาแนบสลิป'); return }
+    if (!slipFile && !existingSlipPath) { setPayError('กรุณาแนบสลิป'); return }
     setPaying(true)
-    let slipUrl = null
 
+    let slipUrl = existingSlipPath
     if (slipFile) {
       const ext = slipFile.name.split('.').pop()
       const path = `${invoiceId}/slip_${Date.now()}.${ext}`
@@ -109,19 +132,32 @@ export default function InvoiceDetailPage() {
       slipUrl = storageData.path
     }
 
-    const { error } = await supabase.from('payments').insert({
-      invoice_id:     invoiceId,
-      amount:         grandTotal,
-      paid_date:      payForm.paid_date,
-      bank_name:      payForm.bank_name || null,
-      bank_reference: payForm.bank_reference.trim() || null,
-      slip_url:       slipUrl,
-      note:           payForm.note.trim() || null,
-      status:         'pending_approve',
-      recorded_by:    profile.id,
-    })
+    const existingPending = payments.find(p => p.status === 'pending_approve')
+    let error
+    if (existingPending) {
+      // Update the auto-created record — keep original amount (actual advance transferred)
+      ;({ error } = await supabase.from('payments').update({
+        paid_date:      payForm.paid_date,
+        bank_name:      payForm.bank_name || null,
+        bank_reference: payForm.bank_reference.trim() || null,
+        slip_url:       slipUrl,
+        note:           payForm.note.trim() || null,
+        recorded_by:    profile.id,
+      }).eq('id', existingPending.id))
+    } else {
+      ;({ error } = await supabase.from('payments').insert({
+        invoice_id:     invoiceId,
+        amount:         grandTotal,
+        paid_date:      payForm.paid_date,
+        bank_name:      payForm.bank_name || null,
+        bank_reference: payForm.bank_reference.trim() || null,
+        slip_url:       slipUrl,
+        note:           payForm.note.trim() || null,
+        status:         'pending_approve',
+        recorded_by:    profile.id,
+      }))
+    }
 
-    // Update invoice to paid_pending_approve
     if (!error) {
       await supabase.from('invoices').update({ status: 'paid_pending_approve' }).eq('id', invoiceId)
     }
@@ -129,6 +165,52 @@ export default function InvoiceDetailPage() {
     setPaying(false)
     if (error) { setPayError(error.message); return }
     setPayModal(false)
+    fetchAll()
+  }
+
+  async function handleApprovePayment(pmt) {
+    setApprovingId(pmt.id)
+    const { error } = await supabase.from('payments').update({
+      status:      'approved',
+      approved_by: profile.id,
+      approved_at: new Date().toISOString(),
+    }).eq('id', pmt.id)
+    if (!error) {
+      try {
+        const blob = await pdf(
+          <ReceiptPDF payment={pmt} invoice={invoice} company={settings?.company ?? {}} />
+        ).toBlob()
+        const storagePath = `receipts/${pmt.id}.pdf`
+        await supabase.storage.from('payment-slips').upload(storagePath, blob, {
+          contentType: 'application/pdf', upsert: true,
+        })
+        const { data: urlData } = await supabase.storage
+          .from('payment-slips').createSignedUrl(storagePath, 60 * 60 * 24 * 30)
+        supabase.functions.invoke('line-notify', {
+          body: { type: 'receipt', payment_id: pmt.id, receipt_url: urlData?.signedUrl ?? null },
+        })
+      } catch (e) { console.error('PDF error', e) }
+    }
+    setApprovingId(null)
+    if (error) { alert(error.message); return }
+    fetchAll()
+  }
+
+  async function handleRejectPayment() {
+    if (!rejectReason.trim()) { setRejectErr('กรุณากรอกเหตุผล'); return }
+    setRejecting(true)
+    const { error } = await supabase.from('payments').update({
+      status:           'rejected',
+      rejected_at:      new Date().toISOString(),
+      rejection_reason: rejectReason.trim(),
+    }).eq('id', rejectTarget.id)
+    if (!error) {
+      const restoredStatus = invoice.due_date < new Date().toISOString().slice(0, 10) ? 'overdue' : 'pending'
+      await supabase.from('invoices').update({ status: restoredStatus }).eq('id', invoiceId)
+    }
+    setRejecting(false)
+    if (error) { setRejectErr(error.message); return }
+    setRejectModal(false)
     fetchAll()
   }
 
@@ -165,8 +247,9 @@ export default function InvoiceDetailPage() {
 
   if (loading) return <PageSpinner />
 
-  const canPay    = ['pending', 'overdue'].includes(invoice.status) && ['super_admin', 'head_staff', 'staff'].includes(role)
-  const canCancel = ['pending', 'overdue', 'paid_pending_approve'].includes(invoice.status) && ['super_admin', 'accounting'].includes(role)
+  const canPay     = ['pending', 'overdue'].includes(invoice.status) && ['super_admin', 'head_staff', 'staff'].includes(role)
+  const canCancel  = ['pending', 'overdue', 'paid_pending_approve'].includes(invoice.status) && ['super_admin', 'accounting'].includes(role)
+  const canApprove = ['super_admin', 'accounting'].includes(role)
 
   // คำนวณค่าปรับ (เฉพาะ monthly_rent ที่เลย due_date แล้ว)
   function calcPenalty() {
@@ -221,7 +304,7 @@ export default function InvoiceDetailPage() {
           />
           {invoice.status === 'paid' && payments.length > 0 && (
             <PdfDownloadButton
-              document={<ReceiptPDF payment={payments[0]} invoice={invoice} company={settings} />}
+              document={<ReceiptPDF payment={payments[0]} invoice={invoice} company={settings?.company ?? {}} />}
               filename={`receipt_${invoice.invoice_number}.pdf`}
               label="PDF ใบเสร็จ"
             />
@@ -365,6 +448,19 @@ export default function InvoiceDetailPage() {
                       }} className="text-xs text-blue-600 hover:underline">ดูสลิป</button>
                     )}
                     <Badge variant={pmt.status} />
+                    {canApprove && pmt.status === 'pending_approve' && (
+                      <>
+                        <Button size="sm" icon={<CheckCircle className="h-3.5 w-3.5" />}
+                          loading={approvingId === pmt.id}
+                          onClick={() => handleApprovePayment(pmt)}>
+                          อนุมัติ
+                        </Button>
+                        <Button size="sm" variant="danger" icon={<XCircle className="h-3.5 w-3.5" />}
+                          onClick={() => { setRejectTarget(pmt); setRejectReason(''); setRejectErr(''); setRejectModal(true) }}>
+                          ปฏิเสธ
+                        </Button>
+                      </>
+                    )}
                   </div>
                 </div>
               ))}
@@ -401,10 +497,25 @@ export default function InvoiceDetailPage() {
               placeholder="xxxx-xxxx-xxxx" />
           </div>
           <div className="flex flex-col gap-1">
-            <label className="text-sm font-medium text-gray-700">แนบสลิป <span className="text-red-500">*</span></label>
+            <label className="text-sm font-medium text-gray-700">
+              แนบสลิป {!existingSlipPath && <span className="text-red-500">*</span>}
+            </label>
+            {existingSlipUrl && !slipFile && (
+              <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 p-2">
+                <img
+                  src={existingSlipUrl}
+                  alt="slip"
+                  className="h-16 w-16 cursor-pointer rounded border object-cover hover:opacity-80"
+                  onClick={() => window.open(existingSlipUrl, '_blank')}
+                />
+                <p className="text-xs text-gray-500">สลิปที่แนบไว้แล้ว<br />เลือกไฟล์ใหม่เพื่อเปลี่ยน</p>
+              </div>
+            )}
             <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-gray-300 px-4 py-3 hover:border-blue-400 transition-colors">
               <Upload className="h-4 w-4 text-gray-400" />
-              <span className="text-sm text-gray-500">{slipFile ? slipFile.name : 'เลือกไฟล์ภาพ / PDF'}</span>
+              <span className="text-sm text-gray-500">
+                {slipFile ? slipFile.name : existingSlipPath ? 'เปลี่ยนสลิป (ไม่บังคับ)' : 'เลือกไฟล์ภาพ / PDF'}
+              </span>
               <input type="file" accept="image/*,application/pdf" className="hidden"
                 onChange={e => setSlipFile(e.target.files?.[0] ?? null)} />
             </label>
@@ -450,6 +561,28 @@ export default function InvoiceDetailPage() {
           />
           {discountError && <p className="text-sm text-red-600">{discountError}</p>}
         </form>
+      </Modal>
+
+      {/* Reject Payment Modal */}
+      <Modal
+        open={rejectModal}
+        onClose={() => setRejectModal(false)}
+        title="ปฏิเสธการชำระเงิน"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setRejectModal(false)}>ปิด</Button>
+            <Button variant="danger" loading={rejecting} onClick={handleRejectPayment}>ยืนยันปฏิเสธ</Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          <p className="text-sm text-gray-600">
+            ปฏิเสธการชำระ ฿{Number(rejectTarget?.amount ?? 0).toLocaleString('th-TH')} — ใบแจ้งหนี้จะกลับสู่สถานะรอชำระ
+          </p>
+          <Textarea label="เหตุผล" required rows={3} value={rejectReason}
+            onChange={e => { setRejectReason(e.target.value); setRejectErr('') }} />
+          {rejectErr && <p className="text-sm text-red-600">{rejectErr}</p>}
+        </div>
       </Modal>
 
       {/* Cancel Modal */}

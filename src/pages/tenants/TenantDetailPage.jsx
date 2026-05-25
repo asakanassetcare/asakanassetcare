@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { ChevronRight, Save, Plus, Trash2, Car } from 'lucide-react'
+import { ChevronRight, Save, Plus, Trash2, Car, Check, X } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import Button from '../../components/ui/Button'
 import Card from '../../components/ui/Card'
@@ -67,7 +67,7 @@ export default function TenantDetailPage() {
   async function fetchTenant() {
     const { data } = await supabase
       .from('tenants')
-      .select('id, full_name, phone, email, line_id, birth_date, address_house_no, address_road, address_subdistrict, address_district, address_province, address, emergency_contact_name, emergency_contact_phone, vehicle_plate, note, id_card_last4, id_card_encrypted, is_foreigner')
+      .select('id, full_name, phone, email, line_id, line_user_id, birth_date, address_house_no, address_road, address_subdistrict, address_district, address_province, address, emergency_contact_name, emergency_contact_phone, vehicle_plate, note, id_card_last4, id_card_encrypted, is_foreigner')
       .eq('id', tenantId)
       .single()
     if (!data) { navigate('/tenants'); return }
@@ -237,6 +237,16 @@ export default function TenantDetailPage() {
       <div className="mb-6">
         <h1 className="text-xl font-semibold text-gray-900">{isNew ? 'เพิ่มผู้เช่า' : tenant?.full_name}</h1>
         {!isNew && tenant?.phone && <p className="mt-1 text-sm text-gray-500">{tenant.phone}</p>}
+        {!isNew && (
+          <div className={`mt-2 inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium ${
+            tenant?.line_user_id ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-500'
+          }`}>
+            {tenant?.line_user_id
+              ? <><Check className="h-3 w-3" /> LINE เชื่อมต่อแล้ว</>
+              : <><X className="h-3 w-3" /> ยังไม่เชื่อม LINE</>
+            }
+          </div>
+        )}
       </div>
 
       {/* Tabs */}

@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { Search, X, Settings2 } from 'lucide-react'
+import { Search, X, Settings2, AlertCircle } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import Select from '../../components/ui/Select'
 import EmptyState from '../../components/ui/EmptyState'
@@ -65,11 +65,45 @@ export default function RoomsPage() {
     if (roomIds.length > 0) {
       const { data: cts } = await supabase
         .from('contracts')
-        .select('room_id, tenants(id, full_name, phone)')
+        .select('id, room_id, checklist_in_url, tenants(id, full_name, phone, line_user_id)')
         .in('room_id', roomIds)
         .eq('status', 'active')
-      for (const ct of cts ?? []) {
+
+      const activeContracts = cts ?? []
+      for (const ct of activeContracts) {
         if (ct.room_id && ct.tenants) contractTenantMap[ct.room_id] = ct.tenants
+      }
+
+      // doc completeness check
+      const tenantIds   = activeContracts.map(ct => ct.tenants?.id).filter(Boolean)
+      const contractIds = activeContracts.map(ct => ct.id).filter(Boolean)
+
+      const [{ data: idCardDocs }, { data: contractPdfDocs }] = await Promise.all([
+        tenantIds.length > 0
+          ? supabase.from('documents').select('ref_id')
+              .eq('ref_table', 'tenants')
+              .in('doc_type', ['id_card_front', 'id_card_back'])
+              .in('ref_id', tenantIds)
+          : Promise.resolve({ data: [] }),
+        contractIds.length > 0
+          ? supabase.from('documents').select('ref_id')
+              .eq('ref_table', 'contracts')
+              .eq('doc_type', 'contract_pdf')
+              .in('ref_id', contractIds)
+          : Promise.resolve({ data: [] }),
+      ])
+
+      const tenantHasIdCard  = new Set((idCardDocs ?? []).map(d => d.ref_id))
+      const contractHasPdf   = new Set((contractPdfDocs ?? []).map(d => d.ref_id))
+
+      for (const ct of activeContracts) {
+        if (!ct.room_id) continue
+        const incomplete =
+          !tenantHasIdCard.has(ct.tenants?.id) ||
+          !contractHasPdf.has(ct.id) ||
+          !ct.checklist_in_url ||
+          !ct.tenants?.line_user_id
+        if (incomplete) contractTenantMap[ct.room_id + '__docIncomplete'] = true
       }
     }
 
@@ -107,13 +141,20 @@ export default function RoomsPage() {
       if (rid) overdueByRoom[rid] = (overdueByRoom[rid] ?? 0) + Number(inv.total_amount)
     }
 
-    const merged = roomList.map(r => ({
-      ...r,
-      tenants:       contractTenantMap[r.id] ?? null,
-      moveOut:       moveOutByRoom[r.id] ?? null,
-      booking:       bookingByRoom[r.id] ?? null,
-      overdueAmount: overdueByRoom[r.id] ?? 0,
-    }))
+    const merged = roomList.map(r => {
+      const booking = bookingByRoom[r.id] ?? null
+      // If DB says available but there's a waiting booking, show reserved
+      const derivedStatus = (booking && r.status === 'available') ? 'reserved' : r.status
+      return {
+        ...r,
+        status:        derivedStatus,
+        tenants:       contractTenantMap[r.id] ?? null,
+        moveOut:       moveOutByRoom[r.id] ?? null,
+        booking,
+        overdueAmount: overdueByRoom[r.id] ?? 0,
+        docIncomplete: contractTenantMap[r.id + '__docIncomplete'] ?? false,
+      }
+    })
 
     setRooms(merged)
     setBuildings(blds ?? [])
@@ -296,6 +337,11 @@ export default function RoomsPage() {
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="font-bold text-gray-900">{room.room_number}</span>
                           <Badge variant={room.status} />
+                          {room.docIncomplete && (
+                            <span title="เอกสารยังไม่ครบ 4 รายการ">
+                              <AlertCircle className="h-3.5 w-3.5 text-red-500" />
+                            </span>
+                          )}
                         </div>
                       </td>
 
