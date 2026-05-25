@@ -159,7 +159,8 @@ export default function InvoiceDetailPage() {
     }
 
     if (!error) {
-      await supabase.from('invoices').update({ status: 'paid_pending_approve' }).eq('id', invoiceId)
+      const { error: invErr } = await supabase.from('invoices').update({ status: 'paid_pending_approve' }).eq('id', invoiceId)
+      if (invErr) { setPaying(false); setPayError('บันทึกสำเร็จแต่อัปเดตสถานะไม่ได้: ' + invErr.message); return }
     }
 
     setPaying(false)
@@ -247,7 +248,7 @@ export default function InvoiceDetailPage() {
 
   if (loading) return <PageSpinner />
 
-  const canPay     = ['pending', 'overdue'].includes(invoice.status) && ['super_admin', 'head_staff', 'staff'].includes(role)
+  const canPay     = ['pending', 'overdue'].includes(invoice.status) && !payments.find(p => p.status === 'pending_approve') && ['super_admin', 'head_staff', 'staff'].includes(role)
   const canCancel  = ['pending', 'overdue', 'paid_pending_approve'].includes(invoice.status) && ['super_admin', 'accounting'].includes(role)
   const canApprove = ['super_admin', 'accounting'].includes(role)
 

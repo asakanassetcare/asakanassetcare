@@ -571,8 +571,6 @@ export default function RoomDetailPage() {
                     onClick={() => navigate(`/contracts/${contract?.id}`)} color="blue" />
                   {contract.status === 'active' && (
                     <>
-                      <ActionBtn icon={<Receipt className="h-4 w-4" />} label="ออกใบแจ้งหนี้"
-                        onClick={() => navigate('/invoices')} color="gray" />
                       {!moveOut && (
                         <ActionBtn icon={<LogOut className="h-4 w-4" />} label="บันทึกแจ้งออก"
                           onClick={() => setMoveOutOpen(true)} color="red" />
