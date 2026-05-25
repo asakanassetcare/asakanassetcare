@@ -36,6 +36,7 @@ export default function RoomDetailPage() {
   const [fpAdding,      setFpAdding]      = useState(false)
   const [fpShowForm,    setFpShowForm]     = useState(false)
   const [docStatus,     setDocStatus]     = useState(null)
+  const [oldDebt,       setOldDebt]       = useState([])
   const [addons,        setAddons]        = useState([])
   const [addonForm,     setAddonForm]     = useState({ name: '', amount: '', billing_cycle: 'monthly' })
   const [addonAdding,   setAddonAdding]   = useState(false)
@@ -149,6 +150,26 @@ export default function RoomDetailPage() {
       setAddons(ads ?? [])
     } else {
       setAddons([])
+    }
+
+    // Overdue invoices from old (terminated) contracts of this room
+    const { data: oldContracts } = await supabase
+      .from('contracts')
+      .select('id, contract_number, tenants(full_name)')
+      .eq('room_id', roomId)
+      .in('status', ['terminated', 'cancelled'])
+    if (oldContracts?.length) {
+      const oldIds = oldContracts.map(c => c.id)
+      const { data: oldInvs } = await supabase
+        .from('invoices')
+        .select('id, invoice_number, total_amount, due_date, contract_id')
+        .in('contract_id', oldIds)
+        .eq('status', 'overdue')
+        .order('due_date')
+      const contractMap = Object.fromEntries(oldContracts.map(c => [c.id, c]))
+      setOldDebt((oldInvs ?? []).map(inv => ({ ...inv, contract: contractMap[inv.contract_id] })))
+    } else {
+      setOldDebt([])
     }
 
     setLoading(false)
@@ -666,6 +687,32 @@ export default function RoomDetailPage() {
                     ? <Link key={label} to={href} className={cls}>{inner}</Link>
                     : <div key={label} className={cls}>{inner}</div>
                 })}
+              </div>
+            </div>
+          )}
+
+          {/* ยอดค้างชำระของผู้เช่าเดิม */}
+          {oldDebt.length > 0 && (
+            <div className="rounded-xl border border-orange-200 bg-orange-50 p-5 shadow-sm">
+              <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-orange-700">
+                <AlertCircle className="h-4 w-4" />
+                ยอดค้างชำระจากผู้เช่าเดิม
+              </h2>
+              <div className="flex flex-col gap-2">
+                {oldDebt.map(inv => (
+                  <div key={inv.id} className="flex items-center justify-between text-sm cursor-pointer hover:opacity-80"
+                    onClick={() => navigate(`/invoices/${inv.id}`)}>
+                    <div>
+                      <p className="font-medium text-gray-800">{inv.invoice_number}</p>
+                      <p className="text-xs text-gray-500">{inv.contract?.tenants?.full_name} · ครบ {formatThaiDate(inv.due_date)}</p>
+                    </div>
+                    <span className="font-semibold text-orange-700">฿{Number(inv.total_amount).toLocaleString('th-TH')}</span>
+                  </div>
+                ))}
+                <div className="mt-1 border-t border-orange-200 pt-2 flex justify-between text-sm font-semibold text-orange-800">
+                  <span>รวม</span>
+                  <span>฿{oldDebt.reduce((s, i) => s + Number(i.total_amount), 0).toLocaleString('th-TH')}</span>
+                </div>
               </div>
             </div>
           )}
