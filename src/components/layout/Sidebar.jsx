@@ -40,7 +40,7 @@ const NAV_ITEMS = [
   { to: '/activity-log',  label: 'Activity Log',       icon: ClipboardList, adminOnly: true },
 ]
 
-export default function Sidebar({ collapsed }) {
+export default function Sidebar({ collapsed, mobileOpen, onMobileClose }) {
   const { role } = useAuth()
   const isAdmin = canManageUsers(role)
   const canApprove = ['super_admin', 'executive'].includes(role)
@@ -56,27 +56,31 @@ export default function Sidebar({ collapsed }) {
 
   return (
     <aside
-      className={`
-        flex h-full flex-col border-r border-gray-200 bg-white transition-all duration-200
-        ${collapsed ? 'w-16' : 'w-60'}
-      `}
+      className={[
+        'flex flex-col border-r border-gray-200 bg-white transition-all duration-200',
+        // Mobile: fixed drawer, slide in/out
+        'fixed inset-y-0 left-0 z-40 w-72',
+        mobileOpen ? 'translate-x-0' : '-translate-x-full',
+        // Desktop: inline sidebar, always visible, collapsible width
+        'lg:relative lg:inset-auto lg:z-auto lg:translate-x-0',
+        collapsed ? 'lg:w-16' : 'lg:w-60',
+      ].join(' ')}
     >
       <div className="flex h-16 shrink-0 items-center border-b border-gray-100 px-4">
         {collapsed ? (
+          <div className="hidden lg:flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600">
+            <Building2 className="h-4 w-4 text-white" />
+          </div>
+        ) : null}
+        <div className={`flex items-center gap-2.5 ${collapsed ? 'lg:hidden' : ''}`}>
           <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600">
             <Building2 className="h-4 w-4 text-white" />
           </div>
-        ) : (
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600">
-              <Building2 className="h-4 w-4 text-white" />
-            </div>
-            <div className="leading-tight">
-              <p className="text-sm font-semibold text-gray-900">Asakan AssetCare+</p>
-              <p className="text-[10px] text-gray-400">บริหารการปล่อยเช่าครบวงจร</p>
-            </div>
+          <div className="leading-tight">
+            <p className="text-sm font-semibold text-gray-900">Asakan AssetCare+</p>
+            <p className="text-[10px] text-gray-400">บริหารการปล่อยเช่าครบวงจร</p>
           </div>
-        )}
+        </div>
       </div>
 
       <nav className="flex-1 overflow-y-auto px-2 py-3 scrollbar-thin">
@@ -98,26 +102,23 @@ export default function Sidebar({ collapsed }) {
               key={item.to}
               to={item.to}
               end={item.end}
+              onClick={onMobileClose}
               className={({ isActive }) => `
                 flex items-center gap-3 rounded-lg px-2.5 py-2 text-sm transition-colors
                 ${isActive
                   ? 'bg-blue-50 text-blue-700 font-medium'
                   : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
                 }
-                ${collapsed ? 'justify-center px-0' : ''}
+                ${collapsed ? 'lg:justify-center lg:px-0' : ''}
               `}
               title={collapsed ? item.label : undefined}
             >
               <Icon className="h-4 w-4 shrink-0" />
-              {!collapsed && (
-                <>
-                  <span className="flex-1">{item.label}</span>
-                  {badge > 0 && (
-                    <span className="rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white">
-                      {badge}
-                    </span>
-                  )}
-                </>
+              <span className={`flex-1 ${collapsed ? 'lg:hidden' : ''}`}>{item.label}</span>
+              {badge > 0 && (
+                <span className={`rounded-full bg-red-500 px-1.5 py-0.5 text-[10px] font-semibold leading-none text-white ${collapsed ? 'lg:hidden' : ''}`}>
+                  {badge}
+                </span>
               )}
             </NavLink>
           )

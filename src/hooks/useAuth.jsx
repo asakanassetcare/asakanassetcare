@@ -5,7 +5,7 @@ const AuthContext = createContext(null)
 
 export function AuthProvider({ children }) {
   const [session, setSession] = useState(undefined) // undefined = loading
-  const [profile, setProfile] = useState(null)
+  const [profile, setProfile] = useState(undefined) // undefined = not yet fetched
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
@@ -49,7 +49,7 @@ export function AuthProvider({ children }) {
     session,
     profile,
     role: profile?.role ?? null,
-    loading: session === undefined,
+    loading: session === undefined || (session !== null && profile === undefined),
     signIn,
     signOut,
     updatePassword,

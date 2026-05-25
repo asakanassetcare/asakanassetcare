@@ -1,6 +1,6 @@
 import { useEffect, useState, useMemo } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
-import { Search, X, Settings2, AlertCircle } from 'lucide-react'
+import { Search, X, Settings2, AlertCircle, CheckCircle2 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import Select from '../../components/ui/Select'
 import EmptyState from '../../components/ui/EmptyState'
@@ -314,7 +314,8 @@ export default function RoomsPage() {
                 </span>
               </div>
 
-              <table className="w-full table-fixed text-sm">
+              <div className="overflow-x-auto">
+              <table className="w-full min-w-[700px] text-sm">
                 <thead>
                   <tr className="border-b border-gray-100 bg-gray-50/50 text-xs text-gray-400">
                     <th style={{width:'10%'}} className="px-4 py-2.5 text-left font-medium">เลขห้อง</th>
@@ -337,9 +338,13 @@ export default function RoomsPage() {
                         <div className="flex items-center gap-1.5 flex-wrap">
                           <span className="font-bold text-gray-900">{room.room_number}</span>
                           <Badge variant={room.status} />
-                          {room.docIncomplete && (
+                          {room.docIncomplete ? (
                             <span title="เอกสารยังไม่ครบ 4 รายการ">
                               <AlertCircle className="h-3.5 w-3.5 text-red-500" />
+                            </span>
+                          ) : room.tenants && (
+                            <span title="เอกสารครบแล้ว">
+                              <CheckCircle2 className="h-3.5 w-3.5 text-green-500" />
                             </span>
                           )}
                         </div>
@@ -431,6 +436,7 @@ export default function RoomsPage() {
                   ))}
                 </tbody>
               </table>
+              </div>
             </div>
           ))}
         </div>

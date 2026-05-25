@@ -164,7 +164,7 @@ export default function BookingFormModal({ open, onClose, onSaved, prefillRoomId
             value={form.paid_date}
             onChange={e => set('paid_date', e.target.value)}
           />
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Select
               label="ธนาคาร"
               options={BANKS}

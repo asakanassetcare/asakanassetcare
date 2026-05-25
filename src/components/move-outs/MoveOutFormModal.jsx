@@ -102,7 +102,7 @@ export default function MoveOutFormModal({ open, onClose, contract, onSaved }) {
           )}
         </div>
 
-        <div className="grid grid-cols-2 gap-4 items-end">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
           <Input label="วันที่ย้ายออก" type="date" required value={form.move_out_date} onChange={f('move_out_date')} min={form.is_early_termination ? undefined : contractEndDate} />
           <label className="flex items-center gap-2 cursor-pointer pb-1">
             <input type="checkbox" checked={form.is_early_termination}

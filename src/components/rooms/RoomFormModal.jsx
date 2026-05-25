@@ -164,7 +164,7 @@ export default function RoomFormModal({ open, onClose, onSaved, initialBuilding,
         </>
       }
     >
-      <form id="room-form" onSubmit={handleSave} className="grid grid-cols-2 gap-4">
+      <form id="room-form" onSubmit={handleSave} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {/* Building & Room Number */}
         <Select
           label="อาคาร"
@@ -283,10 +283,10 @@ export default function RoomFormModal({ open, onClose, onSaved, initialBuilding,
         />
 
         <Input
-          label="เลขที่หนังสือกรรมสิทธิ์ห้องชุด"
+          label="เลขบ้านเลขที่"
           value={form.title_deed_number}
           onChange={(e) => set('title_deed_number', e.target.value)}
-          placeholder="อ.1/1234"
+          placeholder="368/1"
           wrapperClass="col-span-2"
         />
 

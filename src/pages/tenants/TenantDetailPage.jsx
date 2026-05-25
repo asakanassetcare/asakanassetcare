@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useParams, useNavigate, Link } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { ChevronRight, Save, Plus, Trash2, Car, Check, X } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import Button from '../../components/ui/Button'
@@ -11,6 +11,24 @@ import IdCardField from '../../components/tenants/IdCardField'
 import DocumentUpload from '../../components/shared/DocumentUpload'
 import { PageSpinner } from '../../components/ui/Spinner'
 import { formatThaiDate } from '../../lib/date'
+
+const MONTHS_SHORT = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.']
+const INV_TYPE_LABEL = {
+  contract_initial: 'ค่าประกัน+ล่วงหน้า',
+  monthly_rent:     'ค่าเช่า',
+  addon:            'ค่าบริการเสริม',
+  final_settlement: 'เคลียร์ Move-out',
+  booking_deposit:  'เงินมัดจำจอง',
+}
+function invDesc(inv) {
+  if (!inv) return ''
+  const base = INV_TYPE_LABEL[inv.invoice_type] ?? inv.invoice_type ?? ''
+  if (inv.billing_period) {
+    const [y, m] = inv.billing_period.split('-')
+    return `${base} ${MONTHS_SHORT[parseInt(m) - 1]} ${parseInt(y) + 543}`
+  }
+  return base
+}
 
 const TABS = [
   { id: 'info',      label: 'ข้อมูล' },
@@ -31,11 +49,15 @@ const EMPTY_FORM = {
 export default function TenantDetailPage() {
   const { tenantId } = useParams()
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const isNew = tenantId === 'new'
 
   const [tenant, setTenant] = useState(null)
   const [loading, setLoading] = useState(!isNew)
-  const [tab, setTab] = useState('info')
+  const [tab, setTab] = useState(() => {
+    const t = searchParams.get('tab')
+    return ['info','docs','contracts','payments','moveouts'].includes(t) ? t : 'info'
+  })
   const [form, setForm] = useState(EMPTY_FORM)
   const [idCard,      setIdCard]      = useState('')
   const [isForeigner, setIsForeigner] = useState(false)
@@ -101,7 +123,7 @@ export default function TenantDetailPage() {
     setHistoryLoading(true)
     const { data } = await supabase
       .from('payments')
-      .select('id, amount, status, paid_date, invoices!inner(invoice_number, invoice_type, tenant_id)')
+      .select('id, amount, status, paid_date, invoices!inner(invoice_number, invoice_type, billing_period, tenant_id)')
       .eq('invoices.tenant_id', tenantId)
       .order('created_at', { ascending: false })
       .limit(50)
@@ -424,8 +446,8 @@ export default function TenantDetailPage() {
               {payments.map((p, i) => (
                 <div key={p.id} className={`flex items-center justify-between px-4 py-3.5 ${i < payments.length - 1 ? 'border-b border-gray-50' : ''}`}>
                   <div>
-                    <p className="text-sm font-medium text-gray-900">{p.invoices?.invoice_number}</p>
-                    <p className="text-xs text-gray-400">{formatThaiDate(p.paid_date)}</p>
+                    <p className="text-sm font-medium text-gray-900">{invDesc(p.invoices)}</p>
+                    <p className="text-xs text-gray-400">{p.invoices?.invoice_number} · {formatThaiDate(p.paid_date)}</p>
                   </div>
                   <div className="flex items-center gap-3">
                     <span className="text-sm font-semibold text-gray-900">฿{Number(p.amount).toLocaleString('th-TH')}</span>

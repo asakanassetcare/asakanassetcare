@@ -153,9 +153,9 @@ export default function DocumentUpload({ refTable, refId, bucket, allowedTypes, 
               <div className="flex items-center gap-3">
                 <FileText className="h-5 w-5 shrink-0 text-gray-400" />
                 <div>
-                  <p className="text-sm font-medium text-gray-800">{doc.file_name}</p>
+                  <p className="text-sm font-medium text-gray-800">{DOC_TYPE_LABEL[doc.doc_type] ?? doc.doc_type}</p>
                   <p className="text-xs text-gray-400">
-                    {DOC_TYPE_LABEL[doc.doc_type] ?? doc.doc_type}
+                    {doc.file_name}
                     {doc.file_size_bytes ? ` · ${(doc.file_size_bytes / 1024).toFixed(0)} KB` : ''}
                     {` · ${formatThaiDateTime(doc.created_at)}`}
                   </p>

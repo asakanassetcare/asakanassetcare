@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { PanelLeftClose, PanelLeft, ChevronDown, Lock, LogOut } from 'lucide-react'
+import { PanelLeftClose, PanelLeft, ChevronDown, Lock, LogOut, Menu } from 'lucide-react'
 import { useAuth } from '../../hooks/useAuth'
 import NotificationBell from './NotificationBell'
 import GlobalSearch from './GlobalSearch'
@@ -13,7 +13,7 @@ const ROLE_LABEL = {
   staff:       'พนักงาน',
 }
 
-export default function Topbar({ collapsed, onToggle }) {
+export default function Topbar({ collapsed, onToggle, onMobileToggle }) {
   const { profile, role, signOut } = useAuth()
   const navigate = useNavigate()
   const [menuOpen, setMenuOpen] = useState(false)
@@ -35,13 +35,24 @@ export default function Topbar({ collapsed, onToggle }) {
   return (
     <header className="flex h-16 shrink-0 items-center justify-between border-b border-gray-200 bg-white px-4 gap-4">
       {/* Left */}
-      <button
-        onClick={onToggle}
-        className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 transition-colors"
-        title={collapsed ? 'ขยาย sidebar' : 'ย่อ sidebar'}
-      >
-        {collapsed ? <PanelLeft className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
-      </button>
+      <div className="flex items-center gap-1">
+        {/* Mobile: hamburger to open drawer */}
+        <button
+          onClick={onMobileToggle}
+          className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 transition-colors lg:hidden"
+          title="เมนู"
+        >
+          <Menu className="h-5 w-5" />
+        </button>
+        {/* Desktop: collapse/expand sidebar */}
+        <button
+          onClick={onToggle}
+          className="hidden rounded-lg p-2 text-gray-500 hover:bg-gray-100 transition-colors lg:block"
+          title={collapsed ? 'ขยาย sidebar' : 'ย่อ sidebar'}
+        >
+          {collapsed ? <PanelLeft className="h-5 w-5" /> : <PanelLeftClose className="h-5 w-5" />}
+        </button>
+      </div>
 
       {/* Right */}
       <div className="flex items-center gap-2">

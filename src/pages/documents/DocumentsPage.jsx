@@ -41,6 +41,7 @@ export default function DocumentsPage() {
   const { settings } = useSettings()
   const [tab,            setTab]            = useState('contracts')
   const [search,         setSearch]         = useState('')
+  const [searchScope,    setSearchScope]    = useState('all')
   const [receiptType,    setReceiptType]    = useState('')
   const [contracts,      setContracts]      = useState([])
   const [invoices,       setInvoices]       = useState([])
@@ -163,30 +164,32 @@ export default function DocumentsPage() {
 
   const q = search.toLowerCase().trim()
 
+  function matchScope(fields) {
+    if (!q) return true
+    const { number, tenant, room, building, label } = fields
+    if (searchScope === 'room')   return room?.toLowerCase().includes(q)
+    if (searchScope === 'tenant') return tenant?.toLowerCase().includes(q)
+    if (searchScope === 'number') return number?.toLowerCase().includes(q)
+    return (
+      number?.toLowerCase().includes(q) ||
+      tenant?.toLowerCase().includes(q) ||
+      room?.toLowerCase().includes(q) ||
+      building?.toLowerCase().includes(q) ||
+      label?.toLowerCase().includes(q)
+    )
+  }
+
   const filteredContracts = contracts.filter(c =>
-    !q ||
-    c.contract_number?.toLowerCase().includes(q) ||
-    c.tenants?.full_name?.toLowerCase().includes(q) ||
-    c.rooms?.room_number?.toLowerCase().includes(q) ||
-    c.rooms?.buildings?.name?.toLowerCase().includes(q)
+    matchScope({ number: c.contract_number, tenant: c.tenants?.full_name, room: c.rooms?.room_number, building: c.rooms?.buildings?.name })
   )
 
   const filteredInvoices = invoices.filter(inv =>
-    !q ||
-    inv.invoice_number?.toLowerCase().includes(q) ||
-    inv.tenants?.full_name?.toLowerCase().includes(q) ||
-    inv.rooms?.room_number?.toLowerCase().includes(q) ||
-    inv.rooms?.buildings?.name?.toLowerCase().includes(q)
+    matchScope({ number: inv.invoice_number, tenant: inv.tenants?.full_name, room: inv.rooms?.room_number, building: inv.rooms?.buildings?.name })
   )
 
   const filteredReceipts = allReceipts.filter(r => {
     const matchType = !receiptType || r._type === receiptType
-    const matchQ = !q ||
-      r._number?.toLowerCase().includes(q) ||
-      r._tenant?.toLowerCase().includes(q) ||
-      r._room?.toLowerCase().includes(q) ||
-      r._building?.toLowerCase().includes(q) ||
-      r._label?.toLowerCase().includes(q)
+    const matchQ = matchScope({ number: r._number, tenant: r._tenant, room: r._room, building: r._building, label: r._label })
     return matchType && matchQ
   })
 
@@ -204,19 +207,36 @@ export default function DocumentsPage() {
       </div>
 
       {/* Search */}
-      <div className="mb-5 relative max-w-md">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-        <input
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          placeholder="ค้นหาชื่อผู้เช่า เลขเอกสาร ห้อง..."
-          className="h-9 w-full rounded-lg border border-gray-300 bg-white pl-9 pr-9 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-        />
-        {search && (
-          <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400">
-            <X className="h-3.5 w-3.5" />
-          </button>
-        )}
+      <div className="mb-5 flex items-center gap-2 max-w-xl">
+        <select
+          value={searchScope}
+          onChange={e => setSearchScope(e.target.value)}
+          className="h-9 rounded-lg border border-gray-300 bg-white px-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 shrink-0"
+        >
+          <option value="all">ทั้งหมด</option>
+          <option value="room">ห้อง</option>
+          <option value="tenant">ผู้เช่า</option>
+          <option value="number">เลขที่</option>
+        </select>
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder={
+              searchScope === 'room'   ? 'เลขห้อง เช่น 202' :
+              searchScope === 'tenant' ? 'ชื่อผู้เช่า' :
+              searchScope === 'number' ? 'เลขเอกสาร' :
+              'ค้นหาชื่อผู้เช่า เลขเอกสาร ห้อง...'
+            }
+            className="h-9 w-full rounded-lg border border-gray-300 bg-white pl-9 pr-9 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          />
+          {search && (
+            <button onClick={() => setSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-gray-400">
+              <X className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Tabs */}
@@ -333,9 +353,15 @@ export default function DocumentsPage() {
             <EmptyState icon={Receipt} title="ไม่พบใบเสร็จรับเงิน" />
           ) : (
             <div className="flex flex-col gap-2">
-              {filteredReceipts.map(r => (
+              {filteredReceipts.map(r => {
+                const href =
+                  r._source === 'payment' && r._raw.invoices?.id ? `/invoices/${r._raw.invoices.id}` :
+                  r._source === 'booking' ? `/bookings/${r._id}` :
+                  null
+                return (
                 <div key={`${r._source}-${r._id}`}
-                  className="flex items-center justify-between rounded-xl border border-gray-100 bg-white px-4 py-3.5"
+                  onClick={href ? () => navigate(href) : undefined}
+                  className={`flex items-center justify-between rounded-xl border border-gray-100 bg-white px-4 py-3.5 transition-all ${href ? 'cursor-pointer hover:shadow-md' : ''}`}
                 >
                   <div className="min-w-0">
                     <div className="flex items-center gap-2">
@@ -377,7 +403,7 @@ export default function DocumentsPage() {
                     )}
                   </div>
                 </div>
-              ))}
+              )})}
             </div>
           )}
         </>

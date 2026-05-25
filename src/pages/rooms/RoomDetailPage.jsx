@@ -669,7 +669,7 @@ export default function RoomDetailPage() {
               <h2 className="mb-3 text-sm font-semibold text-gray-700">สถานะเอกสาร</h2>
               <div className="grid grid-cols-2 gap-2">
                 {[
-                  { label: 'บัตรประชาชน',       ok: docStatus.idCard,    href: `/contracts/${contract?.id}?tab=documents` },
+                  { label: 'บัตรประชาชน',       ok: docStatus.idCard,    href: contract?.tenant_id ? `/tenants/${contract.tenant_id}?tab=docs` : null },
                   { label: 'สัญญาเช่า',         ok: docStatus.contract,  href: `/contracts/${contract?.id}?tab=documents` },
                   { label: 'Checklist ตอนเข้า', ok: docStatus.checklist, href: null },
                   { label: 'LINE',              ok: docStatus.line,      href: null },

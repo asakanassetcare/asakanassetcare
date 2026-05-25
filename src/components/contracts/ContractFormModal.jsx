@@ -197,7 +197,7 @@ export default function ContractFormModal({ open, onClose, onSaved, prefillRoom,
         </>
       }
     >
-      <form id="contract-form" onSubmit={handleSave} className="grid grid-cols-2 gap-4">
+      <form id="contract-form" onSubmit={handleSave} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {/* Room + Tenant */}
         {lockRoom ? (
           <div className="flex flex-col gap-1">

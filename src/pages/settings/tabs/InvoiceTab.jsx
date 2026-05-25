@@ -54,7 +54,7 @@ export default function InvoiceTab() {
           className="max-w-xs"
         />
         <Textarea
-          label="��้อความท้ายใบแจ้งหนี้"
+          label="ข้อความท้ายใบแจ้งหนี้"
           rows={2}
           value={form.footer_note}
           onChange={(e) => set('footer_note', e.target.value)}
@@ -73,7 +73,7 @@ export default function InvoiceTab() {
 
         <div>
           <p className="mb-3 text-sm font-medium text-gray-700">บัญชีธนาคารรับโอน</p>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <Input
               label="ธนาคาร"
               value={form.bank_account.bank_name}

@@ -49,10 +49,12 @@ export default function InvoiceDetailPage() {
   const { profile, role } = useAuth()
   const { settings } = useSettings()
 
-  const [invoice,  setInvoice]  = useState(null)
-  const [items,    setItems]    = useState([])
-  const [payments, setPayments] = useState([])
-  const [loading,  setLoading]  = useState(true)
+  const [invoice,         setInvoice]         = useState(null)
+  const [items,           setItems]           = useState([])
+  const [payments,        setPayments]        = useState([])
+  const [bookingDeposit,  setBookingDeposit]  = useState(null)
+  const [advancePayments, setAdvancePayments] = useState([])
+  const [loading,         setLoading]         = useState(true)
 
   // Payment recording modal
   const [payModal,          setPayModal]          = useState(false)
@@ -87,7 +89,7 @@ export default function InvoiceDetailPage() {
 
   async function fetchAll() {
     const [{ data: inv }, { data: itms }, { data: pmts }] = await Promise.all([
-      supabase.from('invoices').select('*, rooms(room_number, buildings(name)), tenants(full_name, phone), contracts(contract_number)').eq('id', invoiceId).single(),
+      supabase.from('invoices').select('*, rooms(room_number, buildings(name)), tenants(full_name, phone), contracts(contract_number, booking_id)').eq('id', invoiceId).single(),
       supabase.from('invoice_items').select('*').eq('invoice_id', invoiceId).order('display_order'),
       supabase.from('payments').select('*, profiles!recorded_by(full_name)').eq('invoice_id', invoiceId).order('created_at', { ascending: false }),
     ])
@@ -95,6 +97,22 @@ export default function InvoiceDetailPage() {
     setInvoice(inv)
     setItems(itms ?? [])
     setPayments(pmts ?? [])
+
+    if (inv.contract_id) {
+      const bookingId = inv.invoice_type === 'contract_initial' ? (inv.contracts?.booking_id ?? null) : null
+      const [bkResult, advResult] = await Promise.all([
+        bookingId
+          ? supabase.from('bookings').select('id, slip_url, paid_date, bank_name, bank_reference').eq('id', bookingId).maybeSingle()
+          : Promise.resolve({ data: null }),
+        supabase.from('contract_advance_payments').select('id, amount, slip_url, created_at').eq('contract_id', inv.contract_id).order('created_at'),
+      ])
+      setBookingDeposit(bkResult.data ?? null)
+      setAdvancePayments(advResult.data ?? [])
+    } else {
+      setBookingDeposit(null)
+      setAdvancePayments([])
+    }
+
     setLoading(false)
   }
 
@@ -272,6 +290,7 @@ export default function InvoiceDetailPage() {
   const discount    = Math.min(Number(invoice.penalty_discount ?? 0), penalty?.amount ?? 0)
   const netPenalty  = (penalty?.amount ?? 0) - discount
   const grandTotal  = Number(invoice.total_amount) + netPenalty
+  const grossTotal  = items.filter(it => Number(it.amount) > 0).reduce((s, it) => s + Number(it.amount), 0)
   const canDiscount = penalty && ['super_admin', 'head_staff'].includes(role) && ['pending', 'overdue'].includes(invoice.status)
 
   return (
@@ -345,7 +364,7 @@ export default function InvoiceDetailPage() {
           <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400">ยอดรวม</p>
           {penalty ? (
             <>
-              <p className="text-sm text-gray-500">ค่าเช่า ฿{Number(invoice.total_amount).toLocaleString('th-TH')}</p>
+              <p className="text-sm text-gray-500">ค่าเช่า ฿{grossTotal.toLocaleString('th-TH')}</p>
               <p className="text-sm font-medium text-red-600">ค่าปรับ ฿{penalty.amount.toLocaleString('th-TH')}</p>
               {discount > 0 && <p className="text-sm font-medium text-green-600">ส่วนลดค่าปรับ −฿{discount.toLocaleString('th-TH')}</p>}
               <p className="mt-1 text-2xl font-bold text-gray-900">฿{grandTotal.toLocaleString('th-TH')}</p>
@@ -357,7 +376,12 @@ export default function InvoiceDetailPage() {
               )}
             </>
           ) : (
-            <p className="text-2xl font-bold text-gray-900">฿{Number(invoice.total_amount).toLocaleString('th-TH')}</p>
+            <>
+              <p className="text-2xl font-bold text-gray-900">฿{grossTotal.toLocaleString('th-TH')}</p>
+              {grossTotal !== grandTotal && (
+                <p className="mt-1 text-sm text-green-600">ยอดชำระจริง ฿{grandTotal.toLocaleString('th-TH')}</p>
+              )}
+            </>
           )}
           {invoice.cancellation_reason && (
             <p className="mt-2 text-xs text-red-600">{invoice.cancellation_reason}</p>
@@ -417,7 +441,7 @@ export default function InvoiceDetailPage() {
               )}
               <tfoot>
                 <tr>
-                  <td colSpan={3} className="pt-3 text-right text-sm font-semibold text-gray-700">ยอดรวมทั้งหมด</td>
+                  <td colSpan={3} className="pt-3 text-right text-sm font-semibold text-gray-700">ยอดชำระจริง</td>
                   <td className="pt-3 text-right text-base font-bold text-gray-900">฿{grandTotal.toLocaleString('th-TH')}</td>
                 </tr>
               </tfoot>
@@ -426,10 +450,58 @@ export default function InvoiceDetailPage() {
         </Card>
 
         {/* Payments */}
-        {payments.length > 0 && (
+        {(payments.length > 0 || items.some(it => Number(it.amount) < 0)) && (
           <Card className="lg:col-span-3">
             <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400">ประวัติการชำระ</p>
             <div className="flex flex-col gap-2">
+              {/* Credit rows — negative invoice items (e.g. หักเงินจอง, หักค่าทำสัญญาล่วงหน้า) */}
+              {items.filter(it => Number(it.amount) < 0).map(it => {
+                let slipPath = null
+                let subLabel = 'หักออกจากยอดชำระ'
+
+                if (it.description === 'หักเงินจอง' && bookingDeposit) {
+                  slipPath = bookingDeposit.slip_url ?? null
+                  if (bookingDeposit.paid_date) {
+                    subLabel = [
+                      formatThaiDate(bookingDeposit.paid_date),
+                      bookingDeposit.bank_name,
+                      bookingDeposit.bank_reference,
+                    ].filter(Boolean).join(' · ')
+                  }
+                } else if (it.description === 'หักค่าทำสัญญาล่วงหน้า' && advancePayments.length > 0) {
+                  const latest = advancePayments[advancePayments.length - 1]
+                  slipPath = latest.slip_url ?? null
+                  subLabel = formatThaiDate(latest.created_at.slice(0, 10))
+                }
+
+                return (
+                  <div key={`credit-${it.id}`} className="flex items-center justify-between rounded-lg border border-green-100 bg-green-50 px-3 py-2.5">
+                    <div>
+                      <p className="text-sm font-medium text-green-800">{it.description}</p>
+                      <p className="text-xs text-green-600">{subLabel}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {slipPath && (
+                        <button
+                          onClick={async () => {
+                            const { data } = await supabase.storage.from('payment-slips').createSignedUrl(slipPath, 3600)
+                            if (data?.signedUrl) window.open(data.signedUrl, '_blank')
+                          }}
+                          className="text-xs text-green-600 hover:underline"
+                        >
+                          ดูสลิป
+                        </button>
+                      )}
+                      <p className="text-sm font-semibold text-green-700">
+                        −฿{Math.abs(Number(it.amount)).toLocaleString('th-TH')}
+                      </p>
+                      <span className="rounded-full bg-green-100 border border-green-200 px-2 py-0.5 text-[10px] font-medium text-green-700">
+                        หักยอดแล้ว
+                      </span>
+                    </div>
+                  </div>
+                )
+              })}
               {payments.map(pmt => (
                 <div key={pmt.id} className="flex items-center justify-between rounded-lg border border-gray-100 px-3 py-2.5">
                   <div>
