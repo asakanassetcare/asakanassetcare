@@ -101,7 +101,7 @@ export default function MoveOutDetailPage() {
         supabase.from('invoices')
           .select('id, invoice_number, total_amount, due_date, status')
           .eq('contract_id', moData.contract_id)
-          .in('status', ['pending', 'overdue'])
+          .in('status', ['pending', 'overdue', 'paid_pending_approve'])
           .order('due_date'),
         supabase.from('contract_addons')
           .select('id, name, amount')
@@ -209,9 +209,9 @@ export default function MoveOutDetailPage() {
         bookbank_url:              bookbankUrl,
         termination_doc_url:       terminationDocUrl,
         settlement_deadline: (() => {
-          const d = new Date(mo.move_out_date)
-          d.setDate(d.getDate() + 15)
-          return d.toISOString().slice(0, 10)
+          const [y, m, day] = (mo.move_out_date ?? '').slice(0, 10).split('-').map(Number)
+          const d = new Date(y, m - 1, day + 15)
+          return [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-')
         })(),
       }).eq('id', moveOutId),
       supabase.from('tenants').update({
@@ -220,15 +220,6 @@ export default function MoveOutDetailPage() {
         bank_account_name:   editForm.bank_account_name   || null,
       }).eq('id', mo.tenant_id),
     ]
-
-    // Deactivate one-time addons that have been folded into the settlement total
-    if (pendingAddons.length > 0) {
-      updates.push(
-        supabase.from('contract_addons')
-          .update({ is_active: false })
-          .in('id', pendingAddons.map(a => a.id))
-      )
-    }
 
     const results = await Promise.all(updates)
     setEditSaving(false)
@@ -254,9 +245,10 @@ export default function MoveOutDetailPage() {
 
   async function handleCancel() {
     setCancelling(true); setCancelErr('')
-    const { error } = await supabase.from('move_outs').delete().eq('id', moveOutId)
+    const { error, count } = await supabase.from('move_outs').delete({ count: 'exact' }).eq('id', moveOutId)
     setCancelling(false)
     if (error) { setCancelErr(error.message); return }
+    if (count === 0) { setCancelErr('ไม่สามารถยกเลิกได้ (ไม่มีสิทธิ์หรือสถานะไม่อนุญาต)'); return }
     navigate('/move-outs')
   }
 
