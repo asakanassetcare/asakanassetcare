@@ -1,25 +1,8 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { ChevronRight, CheckCircle, Upload } from 'lucide-react'
-
-const THAI_BANKS = [
-  'ธนาคารกสิกรไทย (KBank)',
-  'ธนาคารกรุงไทย (KTB)',
-  'ธนาคารไทยพาณิชย์ (SCB)',
-  'ธนาคารกรุงเทพ (BBL)',
-  'ธนาคารกรุงศรีอยุธยา (BAY)',
-  'ธนาคารทหารไทยธนชาต (TTB)',
-  'ธนาคารออมสิน (GSB)',
-  'ธนาคารอาคารสงเคราะห์ (GHB)',
-  'ธนาคารเพื่อการเกษตรและสหกรณ์การเกษตร (BAAC)',
-  'ธนาคารอิสลามแห่งประเทศไทย (ISBT)',
-  'ธนาคารซีไอเอ็มบีไทย (CIMB)',
-  'ธนาคารแลนด์ แอนด์ เฮ้าส์ (LHB)',
-  'ธนาคารยูโอบี (UOB)',
-  'ธนาคารทิสโก้ (TISCO)',
-  'ธนาคารเกียรตินาคินภัทร (KKP)',
-]
 import { supabase } from '../../lib/supabase'
+import { THAI_BANKS } from '../../lib/banks'
 import { useAuth } from '../../hooks/useAuth'
 import Button from '../../components/ui/Button'
 import Card from '../../components/ui/Card'
@@ -41,6 +24,7 @@ export default function MoveOutDetailPage() {
   const [mo,                  setMo]                  = useState(null)
   const [settlement,          setSettlement]          = useState(null)
   const [outstandingInvoices, setOutstandingInvoices] = useState([])
+  const [pendingAddons,       setPendingAddons]       = useState([])
   const [loading,             setLoading]             = useState(true)
 
   // Draft: fill-in modal
@@ -111,18 +95,28 @@ export default function MoveOutDetailPage() {
     }
 
     let invData = []
+    let addonData = []
     if (moData.contract_id) {
-      const { data } = await supabase.from('invoices')
-        .select('id, invoice_number, total_amount, due_date, status')
-        .eq('contract_id', moData.contract_id)
-        .in('status', ['pending', 'overdue'])
-        .order('due_date')
-      invData = data ?? []
+      const [{ data: inv }, { data: addons }] = await Promise.all([
+        supabase.from('invoices')
+          .select('id, invoice_number, total_amount, due_date, status')
+          .eq('contract_id', moData.contract_id)
+          .in('status', ['pending', 'overdue'])
+          .order('due_date'),
+        supabase.from('contract_addons')
+          .select('id, name, amount')
+          .eq('contract_id', moData.contract_id)
+          .eq('billing_cycle', 'one_time')
+          .eq('is_active', true),
+      ])
+      invData   = inv    ?? []
+      addonData = addons ?? []
     }
 
     setMo(moData)
     setSettlement(stlData)
     setOutstandingInvoices(invData)
+    setPendingAddons(addonData)
     setLoading(false)
   }
 
@@ -159,7 +153,9 @@ export default function MoveOutDetailPage() {
     if (!editForm.bank_account_name.trim())   { setEditSaving(false); setEditErr('กรุณากรอกชื่อบัญชี'); return }
 
     const deposit       = Number(mo.deposit_amount)         || 0
-    const outstanding   = outstandingInvoices.reduce((s, i) => s + Number(i.total_amount), 0)
+    const invoiceTotal  = outstandingInvoices.reduce((s, i) => s + Number(i.total_amount), 0)
+    const addonTotal    = pendingAddons.reduce((s, a) => s + Number(a.amount), 0)
+    const outstanding   = invoiceTotal + addonTotal
     const repair        = Number(editForm.repair_cost)       || 0
     const penalty       = Number(editForm.penalty_cost)      || 0
     const other         = Number(editForm.other_deduction)   || 0
@@ -198,7 +194,7 @@ export default function MoveOutDetailPage() {
       terminationDocUrl = td.path
     }
 
-    const [{ error }, { error: tenantErr }] = await Promise.all([
+    const updates = [
       supabase.from('move_outs').update({
         electric_meter_end:        editForm.electric_meter_end !== '' ? Number(editForm.electric_meter_end) : null,
         water_meter_end:           editForm.water_meter_end    !== '' ? Number(editForm.water_meter_end)    : null,
@@ -223,10 +219,21 @@ export default function MoveOutDetailPage() {
         bank_account_number: editForm.bank_account_number || null,
         bank_account_name:   editForm.bank_account_name   || null,
       }).eq('id', mo.tenant_id),
-    ])
+    ]
 
+    // Deactivate one-time addons that have been folded into the settlement total
+    if (pendingAddons.length > 0) {
+      updates.push(
+        supabase.from('contract_addons')
+          .update({ is_active: false })
+          .in('id', pendingAddons.map(a => a.id))
+      )
+    }
+
+    const results = await Promise.all(updates)
     setEditSaving(false)
-    if (error || tenantErr) { setEditErr((error || tenantErr).message); return }
+    const firstErr = results.find(r => r.error)?.error
+    if (firstErr) { setEditErr(firstErr.message); return }
     setEditModal(false)
     fetchAll()
   }
@@ -234,6 +241,7 @@ export default function MoveOutDetailPage() {
   async function handleSubmitForAccounting() {
     if (mo.electric_meter_end == null || mo.water_meter_end == null) { setSubmitErr('กรุณากรอกมิเตอร์ไฟและมิเตอร์น้ำก่อน'); return }
     if (!mo.settlement_deadline) { setSubmitErr('กรุณากด "กรอกข้อมูล" และบันทึกข้อมูลก่อน'); return }
+    if (pendingAddons.length > 0) { setSubmitErr('มีค่าบริการเพิ่มเติมที่ยังไม่ได้เคลียร์ กรุณากด "กรอกข้อมูล" เพื่อรับทราบและรวมยอดก่อน'); return }
     setSubmitting(true); setSubmitErr('')
     const { error } = await supabase.from('move_outs').update({
       status: 'pending_accounting',
@@ -439,6 +447,22 @@ export default function MoveOutDetailPage() {
         </>
       )}
 
+      {/* Pending addons warning */}
+      {pendingAddons.length > 0 && mo.status === 'draft' && (
+        <div className="mb-4 rounded-xl border border-orange-300 bg-orange-50 px-4 py-3 text-sm text-orange-800">
+          <p className="font-semibold mb-1">มีค่าบริการเพิ่มเติมที่ยังไม่ได้รวมในการ settlement ({pendingAddons.length} รายการ)</p>
+          <div className="space-y-0.5 mb-2">
+            {pendingAddons.map(a => (
+              <div key={a.id} className="flex justify-between text-xs">
+                <span>{a.name}</span>
+                <span>฿{Number(a.amount).toLocaleString('th-TH')}</span>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-orange-600">กด <strong>กรอกข้อมูล</strong> เพื่อรับทราบและรวมยอดเหล่านี้ในการคำนวณ ก่อนส่งให้หัวหน้าอนุมัติ</p>
+        </div>
+      )}
+
       <div className="grid gap-4 lg:grid-cols-3 max-w-4xl">
         {/* Room */}
         <Card>
@@ -527,7 +551,7 @@ export default function MoveOutDetailPage() {
             )}
             {mo.outstanding_invoice_total > 0 && (
               <div className="flex justify-between text-red-600">
-                <span>ค่าเช่าค้างชำระ</span>
+                <span>ยอดค้างชำระ (ค่าเช่า + บริการ)</span>
                 <span>-฿{Number(mo.outstanding_invoice_total).toLocaleString('th-TH')}</span>
               </div>
             )}
@@ -684,7 +708,9 @@ export default function MoveOutDetailPage() {
       >
         {(() => {
           const deposit       = Number(mo.deposit_amount)         || 0
-          const outstanding   = outstandingInvoices.reduce((s, i) => s + Number(i.total_amount), 0)
+          const invoiceTotal  = outstandingInvoices.reduce((s, i) => s + Number(i.total_amount), 0)
+          const addonTotal    = pendingAddons.reduce((s, a) => s + Number(a.amount), 0)
+          const outstanding   = invoiceTotal + addonTotal
           const repair        = Number(editForm.repair_cost)       || 0
           const penalty       = Number(editForm.penalty_cost)      || 0
           const other         = Number(editForm.other_deduction)   || 0
@@ -765,12 +791,29 @@ export default function MoveOutDetailPage() {
                   <div className="flex flex-col gap-1">
                     <p className="text-sm font-medium text-gray-700">ค่าเช่าค้างชำระ (฿)</p>
                     <div className={`h-10 rounded-lg border px-3 flex items-center text-sm font-semibold ${
-                      outstanding > 0 ? 'border-red-200 bg-red-50 text-red-700' : 'border-gray-200 bg-gray-50 text-gray-800'
+                      invoiceTotal > 0 ? 'border-red-200 bg-red-50 text-red-700' : 'border-gray-200 bg-gray-50 text-gray-800'
                     }`}>
-                      {outstanding > 0 ? `-฿${outstanding.toLocaleString('th-TH')}` : '฿0'}
+                      {invoiceTotal > 0 ? `-฿${invoiceTotal.toLocaleString('th-TH')}` : '฿0'}
                     </div>
                     {outstandingInvoices.length > 0 && (
                       <p className="text-xs text-red-500">{outstandingInvoices.length} ใบ</p>
+                    )}
+                  </div>
+                  {/* Read-only: pending one-time addons */}
+                  <div className="flex flex-col gap-1">
+                    <p className="text-sm font-medium text-gray-700">ค่าบริการเพิ่มเติมค้างชำระ (฿)</p>
+                    <div className={`h-10 rounded-lg border px-3 flex items-center text-sm font-semibold ${
+                      addonTotal > 0 ? 'border-orange-200 bg-orange-50 text-orange-700' : 'border-gray-200 bg-gray-50 text-gray-800'
+                    }`}>
+                      {addonTotal > 0 ? `-฿${addonTotal.toLocaleString('th-TH')}` : '฿0'}
+                    </div>
+                    {pendingAddons.length > 0 && (
+                      <div className="text-xs text-orange-600 space-y-0.5">
+                        {pendingAddons.map(a => (
+                          <p key={a.id}>{a.name} — ฿{Number(a.amount).toLocaleString('th-TH')}</p>
+                        ))}
+                        <p className="text-gray-400">* จะถูกรวมในยอดหักและยกเลิกรายการ</p>
+                      </div>
                     )}
                   </div>
                   <Input label="ค่าซ่อมแซม (฿)"  type="number" min={0} value={editForm.repair_cost}     onChange={ef('repair_cost')} />

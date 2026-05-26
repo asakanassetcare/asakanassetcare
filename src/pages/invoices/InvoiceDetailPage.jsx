@@ -17,22 +17,7 @@ import ReceiptPDF from '../../components/pdf/ReceiptPDF'
 import { PageSpinner } from '../../components/ui/Spinner'
 import { formatThaiDate, formatThaiDateTime } from '../../lib/date'
 import { useSettings } from '../../hooks/useSettings'
-
-const BANKS = [
-  { value: '',                        label: '— เลือกธนาคาร —' },
-  { value: 'กสิกรไทย',               label: 'ธ. กสิกรไทย (KBank)' },
-  { value: 'ไทยพาณิชย์',             label: 'ธ. ไทยพาณิชย์ (SCB)' },
-  { value: 'กรุงเทพ',                label: 'ธ. กรุงเทพ (BBL)' },
-  { value: 'กรุงไทย',                label: 'ธ. กรุงไทย (KTB)' },
-  { value: 'กรุงศรีอยุธยา',          label: 'ธ. กรุงศรีอยุธยา (BAY)' },
-  { value: 'ทหารไทยธนชาต',           label: 'ธ. ทหารไทยธนชาต (TTB)' },
-  { value: 'ออมสิน',                  label: 'ธ. ออมสิน (GSB)' },
-  { value: 'อาคารสงเคราะห์',         label: 'ธ. อาคารสงเคราะห์ (GHB)' },
-  { value: 'ยูโอบี',                  label: 'ธ. ยูโอบี (UOB)' },
-  { value: 'ซีไอเอ็มบีไทย',         label: 'ธ. ซีไอเอ็มบีไทย (CIMB)' },
-  { value: 'พร้อมเพย์',              label: 'พร้อมเพย์ / PromptPay' },
-  { value: 'อื่นๆ',                   label: 'อื่นๆ' },
-]
+import { THAI_BANKS } from '../../lib/banks'
 
 const TYPE_LABEL = {
   contract_initial: 'เงินประกัน + ค่าล่วงหน้า',
@@ -563,7 +548,8 @@ export default function InvoiceDetailPage() {
           <Input label="วันที่ชำระ" type="date" required value={payForm.paid_date}
             onChange={e => setPayForm(p => ({ ...p, paid_date: e.target.value }))} />
           <div className="grid grid-cols-2 gap-3">
-            <Select label="ธนาคาร" options={BANKS} value={payForm.bank_name}
+            <Select label="ธนาคาร" options={THAI_BANKS} placeholder="— เลือกธนาคาร —"
+              value={payForm.bank_name}
               onChange={e => setPayForm(p => ({ ...p, bank_name: e.target.value }))} />
             <Input label="เลขที่โอน" value={payForm.bank_reference}
               onChange={e => setPayForm(p => ({ ...p, bank_reference: e.target.value }))}

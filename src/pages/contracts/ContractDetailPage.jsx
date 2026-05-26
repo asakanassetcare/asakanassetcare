@@ -14,9 +14,11 @@ import MoveOutFormModal from '../../components/move-outs/MoveOutFormModal'
 import { PageSpinner } from '../../components/ui/Spinner'
 import PdfDownloadButton from '../../components/pdf/PdfDownloadButton'
 import AdvancePaymentReceiptPDF from '../../components/pdf/AdvancePaymentReceiptPDF'
+import RentAdvancePDF from '../../components/pdf/RentAdvancePDF'
 import ReceiptPDF from '../../components/pdf/ReceiptPDF'
 import { formatThaiDate, formatThaiDateTime } from '../../lib/date'
 import { useSettings } from '../../hooks/useSettings'
+import { THAI_BANKS } from '../../lib/banks'
 
 const TABS = [
   { id: 'info',      label: 'ข้อมูล' },
@@ -75,7 +77,7 @@ export default function ContractDetailPage() {
   // Document status
   const [docStatus, setDocStatus] = useState({ idCard: false, contract: false })
 
-  // Advance payment
+  // Advance payment (contract signing, before approval)
   const [advancePayments,  setAdvancePayments]  = useState([])
   const [advanceModal,     setAdvanceModal]     = useState(false)
   const [advanceAmount,    setAdvanceAmount]    = useState('')
@@ -83,6 +85,18 @@ export default function ContractDetailPage() {
   const [advanceNote,      setAdvanceNote]      = useState('')
   const [advanceSaving,    setAdvanceSaving]    = useState(false)
   const [advanceErr,       setAdvanceErr]       = useState('')
+
+  // Rent advance (prepaid future months, for active contracts)
+  const [rentAdvances,     setRentAdvances]     = useState([])
+  const [raModal,          setRaModal]          = useState(false)
+  const [raMonths,         setRaMonths]         = useState(1)
+  const [raSlipFile,       setRaSlipFile]       = useState(null)
+  const [raBankName,       setRaBankName]       = useState('')
+  const [raBankRef,        setRaBankRef]        = useState('')
+  const [raNote,           setRaNote]           = useState('')
+  const [raSaving,         setRaSaving]         = useState(false)
+  const [raErr,            setRaErr]            = useState('')
+  const [raSaved,          setRaSaved]          = useState(null) // last saved advance for print
 
   useEffect(() => { fetchContract() }, [contractId])
   useEffect(() => { if (tab === 'invoices') fetchInvoices() }, [tab])
@@ -124,13 +138,21 @@ export default function ContractDetailPage() {
     ])
     setDocStatus({ idCard: (tenantDocs?.length ?? 0) > 0, contract: (contractDocs?.length ?? 0) > 0 })
 
-    // Advance payments
+    // Advance payments (before-approval)
     const { data: advData } = await supabase
       .from('contract_advance_payments')
       .select('id, amount, slip_url, note, created_at, created_by')
       .eq('contract_id', contractId)
       .order('created_at')
     setAdvancePayments(advData ?? [])
+
+    // Rent advance payments (active contracts)
+    const { data: raData } = await supabase
+      .from('rent_advance_payments')
+      .select('id, advance_number, months_count, monthly_rent_snapshot, paid_amount, remaining_amount, bank_name, bank_reference, slip_url, note, status, created_at')
+      .eq('contract_id', contractId)
+      .order('created_at', { ascending: false })
+    setRentAdvances(raData ?? [])
 
     setLoading(false)
   }
@@ -141,7 +163,7 @@ export default function ContractDetailPage() {
     const day = dt.getDate()
     if (day === 1) return 0
     const daysInMonth = new Date(dt.getFullYear(), dt.getMonth() + 1, 0).getDate()
-    return Math.ceil((daysInMonth - day + 1) / daysInMonth * Number(monthlyRent))
+    return Math.ceil((daysInMonth - day + 1) / 30 * Number(monthlyRent))
   }
 
   async function fetchInvoices() {
@@ -271,6 +293,44 @@ export default function ContractDetailPage() {
     fetchContract()
   }
 
+  async function handleSaveRentAdvance(e) {
+    e.preventDefault()
+    const months = parseInt(raMonths, 10)
+    if (!months || months < 1) { setRaErr('กรุณาระบุจำนวนเดือน'); return }
+    if (!raBankName) { setRaErr('กรุณาเลือกธนาคาร'); return }
+    if (!raSlipFile) { setRaErr('กรุณาแนบสลิปการโอนเงิน'); return }
+    setRaSaving(true); setRaErr('')
+
+    const monthlyRent = Number(c.monthly_rent)
+    const paidAmount  = monthlyRent * months
+
+    const ext  = raSlipFile.name.split('.').pop()
+    const path = `rent-advance/${contractId}_${Date.now()}.${ext}`
+    const { data: sd, error: se } = await supabase.storage.from('payment-slips').upload(path, raSlipFile)
+    if (se) { setRaSaving(false); setRaErr('อัปโหลดสลิปไม่สำเร็จ'); return }
+
+    const { data: inserted, error } = await supabase.from('rent_advance_payments').insert({
+      contract_id:           contractId,
+      tenant_id:             c.tenants?.id,
+      room_id:               c.rooms?.id,
+      months_count:          months,
+      monthly_rent_snapshot: monthlyRent,
+      paid_amount:           paidAmount,
+      slip_url:              sd.path,
+      bank_name:             raBankName,
+      bank_reference:        raBankRef.trim() || null,
+      note:                  raNote.trim()    || null,
+      created_by:            profile.id,
+    }).select('id, advance_number, months_count, monthly_rent_snapshot, paid_amount, remaining_amount, bank_name, bank_reference, slip_url, note, status, created_at').single()
+
+    setRaSaving(false)
+    if (error) { setRaErr(error.message); return }
+    setRaSaved(inserted)
+    setRaModal(false)
+    setRaMonths(1); setRaSlipFile(null); setRaBankName(''); setRaBankRef(''); setRaNote('')
+    fetchContract()
+  }
+
   function calcMaxAdvance(contract) {
     if (!contract) return 0
     const prorate = calcProrate(contract.contract_start_date, contract.monthly_rent)
@@ -391,6 +451,22 @@ export default function ContractDetailPage() {
           >
             พิมพ์สัญญา
           </Button>
+
+          {/* Rent advance (prepay future months) */}
+          {c.status === 'active' && isOperational && (
+            <Button
+              variant="secondary"
+              icon={<Wallet className="h-4 w-4" />}
+              onClick={() => { setRaMonths(1); setRaSlipFile(null); setRaBankName(''); setRaBankRef(''); setRaNote(''); setRaErr(''); setRaModal(true) }}
+            >
+              ดาวน์ล่วงหน้า
+              {rentAdvances.some(r => r.status === 'active') && (
+                <span className="ml-1.5 rounded-full bg-green-600 px-1.5 py-0.5 text-[10px] font-semibold text-white leading-none">
+                  ฿{rentAdvances.filter(r => r.status === 'active').reduce((s, r) => s + Number(r.remaining_amount), 0).toLocaleString('th-TH')}
+                </span>
+              )}
+            </Button>
+          )}
 
           {/* Move-out */}
           {c.status === 'active' && isOperational && (
@@ -548,6 +624,95 @@ export default function ContractDetailPage() {
                   </div>
                 </div>
               )}
+            </Card>
+          )}
+
+          {/* Rent Advance Payments */}
+          {(c.status === 'active' && (rentAdvances.length > 0 || isOperational)) && (
+            <Card className="lg:col-span-2">
+              <div className="mb-3 flex items-center justify-between">
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">ดาวน์ล่วงหน้าค่าเช่า</p>
+                  {rentAdvances.some(r => r.status === 'active') && (
+                    <p className="mt-0.5 text-sm font-semibold text-green-700">
+                      คงเหลือ ฿{rentAdvances.filter(r => r.status === 'active').reduce((s, r) => s + Number(r.remaining_amount), 0).toLocaleString('th-TH')}
+                    </p>
+                  )}
+                </div>
+                {isOperational && (
+                  <button
+                    onClick={() => { setRaMonths(1); setRaSlipFile(null); setRaBankName(''); setRaBankRef(''); setRaNote(''); setRaErr(''); setRaModal(true) }}
+                    className="text-xs text-blue-600 hover:underline"
+                  >
+                    + บันทึกรายการ
+                  </button>
+                )}
+              </div>
+              {rentAdvances.length === 0 ? (
+                <p className="text-sm text-gray-400">ยังไม่มีรายการดาวน์ล่วงหน้า</p>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  {rentAdvances.map((ra) => (
+                    <div key={ra.id} className={`flex items-center justify-between rounded-lg px-3 py-2 ${ra.status === 'active' ? 'bg-green-50' : 'bg-gray-50'}`}>
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-semibold text-gray-900">{ra.advance_number}</p>
+                          {ra.status === 'fully_used' && (
+                            <span className="rounded-full bg-gray-200 px-2 py-0.5 text-[10px] font-medium text-gray-500">ใช้หมดแล้ว</span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-500">
+                          {ra.months_count} เดือน × ฿{Number(ra.monthly_rent_snapshot).toLocaleString('th-TH')}
+                          {' = '}฿{Number(ra.paid_amount).toLocaleString('th-TH')}
+                        </p>
+                        {ra.status === 'active' && (
+                          <p className="text-xs text-green-700 font-medium">คงเหลือ ฿{Number(ra.remaining_amount).toLocaleString('th-TH')}</p>
+                        )}
+                        <p className="text-xs text-gray-400">{formatThaiDate(ra.created_at)}{ra.bank_name ? ` · ${ra.bank_name}` : ''}</p>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        {ra.slip_url && (
+                          <button
+                            onClick={async () => {
+                              const { data } = await supabase.storage.from('payment-slips').createSignedUrl(ra.slip_url, 3600)
+                              if (data?.signedUrl) window.open(data.signedUrl, '_blank')
+                            }}
+                            className="text-xs text-blue-600 hover:underline"
+                          >
+                            ดูสลิป
+                          </button>
+                        )}
+                        <PdfDownloadButton
+                          document={<RentAdvancePDF advance={ra} contract={c} company={settings?.company ?? {}} />}
+                          filename={`${ra.advance_number}.pdf`}
+                          label="พิมพ์ใบรับเงิน"
+                          size="sm"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </Card>
+          )}
+
+          {/* Last-saved rent advance: quick print */}
+          {raSaved && (
+            <Card className="lg:col-span-2 border-green-200 bg-green-50">
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm font-semibold text-green-800">บันทึกดาวน์ล่วงหน้าสำเร็จ — {raSaved.advance_number}</p>
+                  <p className="text-xs text-green-600">฿{Number(raSaved.paid_amount).toLocaleString('th-TH')} · {raSaved.months_count} เดือน</p>
+                </div>
+                <div className="flex gap-2">
+                  <PdfDownloadButton
+                    document={<RentAdvancePDF advance={raSaved} contract={c} company={settings?.company ?? {}} />}
+                    filename={`${raSaved.advance_number}.pdf`}
+                    label="พิมพ์ใบรับเงิน"
+                  />
+                  <button onClick={() => setRaSaved(null)} className="text-xs text-gray-400 hover:text-gray-600">✕</button>
+                </div>
+              </div>
             </Card>
           )}
 
@@ -872,6 +1037,113 @@ export default function ContractDetailPage() {
             </div>
           )
         })()}
+      </Modal>
+
+      {/* Rent Advance Modal */}
+      <Modal
+        open={raModal}
+        onClose={() => setRaModal(false)}
+        title="บันทึกดาวน์ล่วงหน้าค่าเช่า"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setRaModal(false)}>ยกเลิก</Button>
+            <Button form="ra-form" type="submit" loading={raSaving}>บันทึก</Button>
+          </>
+        }
+      >
+        <form id="ra-form" onSubmit={handleSaveRentAdvance} className="flex flex-col gap-4">
+          {/* Breakdown */}
+          {(() => {
+            const months    = parseInt(raMonths, 10) || 0
+            const total     = Number(c.monthly_rent) * months
+            return (
+              <div className="rounded-lg bg-blue-50 px-4 py-3 text-sm">
+                <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-blue-500">ยอดที่จะรับ</p>
+                <div className="flex flex-col gap-1 text-blue-800">
+                  <div className="flex justify-between">
+                    <span>ค่าเช่า/เดือน</span>
+                    <span>฿{Number(c.monthly_rent).toLocaleString('th-TH')}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>จำนวนเดือน</span>
+                    <span>{months} เดือน</span>
+                  </div>
+                  <div className="flex justify-between border-t border-blue-200 pt-1 font-semibold">
+                    <span>รวมรับ</span>
+                    <span>฿{total.toLocaleString('th-TH')}</span>
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
+
+          {/* Months */}
+          <div className="flex flex-col gap-1">
+            <label className="text-sm font-medium text-gray-700">จำนวนเดือนที่จ่ายล่วงหน้า <span className="text-red-500">*</span></label>
+            <input
+              type="number"
+              min={1}
+              max={24}
+              value={raMonths}
+              onChange={e => setRaMonths(e.target.value)}
+              className="h-9 w-28 rounded-lg border border-gray-300 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          {/* Bank */}
+          <div className="flex flex-col gap-1">
+            <label className="text-sm font-medium text-gray-700">ธนาคาร <span className="text-red-500">*</span></label>
+            <select
+              value={raBankName}
+              onChange={e => setRaBankName(e.target.value)}
+              className="h-10 rounded-lg border border-gray-300 bg-white px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">-- เลือกธนาคาร --</option>
+              {THAI_BANKS.map(b => <option key={b} value={b}>{b}</option>)}
+            </select>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-sm font-medium text-gray-700">เลขอ้างอิง / ธุรกรรม</label>
+            <input
+              type="text"
+              value={raBankRef}
+              onChange={e => setRaBankRef(e.target.value)}
+              placeholder="เช่น 20260525001234"
+              className="h-9 w-full rounded-lg border border-gray-300 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          {/* Slip */}
+          <div className="flex flex-col gap-1">
+            <label className="text-sm font-medium text-gray-700">สลิปการโอน <span className="text-red-500">*</span></label>
+            <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-gray-300 px-4 py-3 hover:border-blue-400 transition-colors">
+              <Upload className="h-4 w-4 text-gray-400 shrink-0" />
+              <span className="text-sm text-gray-500 truncate">
+                {raSlipFile ? raSlipFile.name : 'เลือกไฟล์ (รูปหรือ PDF)'}
+              </span>
+              <input type="file" accept="image/*,application/pdf" className="hidden"
+                onChange={e => setRaSlipFile(e.target.files?.[0] ?? null)} />
+            </label>
+          </div>
+
+          <div className="flex flex-col gap-1">
+            <label className="text-sm font-medium text-gray-700">หมายเหตุ</label>
+            <input
+              type="text"
+              value={raNote}
+              onChange={e => setRaNote(e.target.value)}
+              placeholder="เช่น โอนผ่านพร้อมเพย์"
+              className="h-9 w-full rounded-lg border border-gray-300 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
+          <div className="rounded-lg bg-amber-50 px-4 py-3 text-xs text-amber-700">
+            ระบบจะหักยอดนี้ออกจากใบแจ้งหนี้ค่าเช่ารายเดือนโดยอัตโนมัติ หากยอดใบแจ้งหนี้สูงกว่าดาวน์ที่เหลือ ผู้เช่าจะต้องชำระส่วนต่าง
+          </div>
+
+          {raErr && <p className="text-sm text-red-600">{raErr}</p>}
+        </form>
       </Modal>
 
       {/* Move-out Modal */}

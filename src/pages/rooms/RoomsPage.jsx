@@ -107,11 +107,11 @@ export default function RoomsPage() {
       }
     }
 
-    // Pending move-outs (pending_accounting or approved) → look up via contracts.room_id
+    // Active move-outs (any non-settled status) → look up via contracts.room_id
     const { data: moveOuts } = await supabase
       .from('move_outs')
       .select('id, move_out_date, status, contracts!inner(room_id)')
-      .in('status', ['pending_accounting'])
+      .in('status', ['draft', 'pending_accounting', 'approved'])
 
     const moveOutByRoom = {}
     for (const mo of moveOuts ?? []) {

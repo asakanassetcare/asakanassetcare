@@ -17,18 +17,7 @@ import { isAtLeast } from '../../lib/permissions'
 import ContractFormModal from '../../components/contracts/ContractFormModal'
 import PdfDownloadButton from '../../components/pdf/PdfDownloadButton'
 import BookingReceiptPDF from '../../components/pdf/BookingReceiptPDF'
-
-const BANKS = [
-  { value: '',              label: '— เลือกธนาคาร —' },
-  { value: 'กสิกรไทย',     label: 'ธ. กสิกรไทย (KBank)' },
-  { value: 'ไทยพาณิชย์',   label: 'ธ. ไทยพาณิชย์ (SCB)' },
-  { value: 'กรุงเทพ',      label: 'ธ. กรุงเทพ (BBL)' },
-  { value: 'กรุงไทย',      label: 'ธ. กรุงไทย (KTB)' },
-  { value: 'กรุงศรีอยุธยา',label: 'ธ. กรุงศรีอยุธยา (BAY)' },
-  { value: 'ทหารไทยธนชาต', label: 'ธ. ทหารไทยธนชาต (TTB)' },
-  { value: 'พร้อมเพย์',    label: 'พร้อมเพย์ / PromptPay' },
-  { value: 'อื่นๆ',         label: 'อื่นๆ' },
-]
+import { THAI_BANKS } from '../../lib/banks'
 
 const DEPOSIT_ACTION_OPTS = [
   { value: 'refunded', label: 'คืนเงินจองให้ผู้เช่า' },
@@ -333,7 +322,8 @@ export default function BookingDetailPage() {
           <div className="grid grid-cols-2 gap-3">
             <Select
               label="ธนาคาร"
-              options={BANKS}
+              options={THAI_BANKS}
+              placeholder="— เลือกธนาคาร —"
               value={payForm.bank_name}
               onChange={e => setPayForm(p => ({ ...p, bank_name: e.target.value }))}
             />

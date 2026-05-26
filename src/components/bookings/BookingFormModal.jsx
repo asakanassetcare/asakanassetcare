@@ -8,18 +8,7 @@ import Input from '../ui/Input'
 import Select from '../ui/Select'
 import Textarea from '../ui/Textarea'
 import TenantSelect from '../shared/TenantSelect'
-
-const BANKS = [
-  { value: '',               label: '— เลือกธนาคาร —' },
-  { value: 'กสิกรไทย',      label: 'ธ. กสิกรไทย (KBank)' },
-  { value: 'ไทยพาณิชย์',    label: 'ธ. ไทยพาณิชย์ (SCB)' },
-  { value: 'กรุงเทพ',       label: 'ธ. กรุงเทพ (BBL)' },
-  { value: 'กรุงไทย',       label: 'ธ. กรุงไทย (KTB)' },
-  { value: 'กรุงศรีอยุธยา', label: 'ธ. กรุงศรีอยุธยา (BAY)' },
-  { value: 'ทหารไทยธนชาต',  label: 'ธ. ทหารไทยธนชาต (TTB)' },
-  { value: 'พร้อมเพย์',     label: 'พร้อมเพย์ / PromptPay' },
-  { value: 'อื่นๆ',          label: 'อื่นๆ' },
-]
+import { THAI_BANKS } from '../../lib/banks'
 
 export default function BookingFormModal({ open, onClose, onSaved, prefillRoomId }) {
   const { profile } = useAuth()
@@ -167,7 +156,8 @@ export default function BookingFormModal({ open, onClose, onSaved, prefillRoomId
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Select
               label="ธนาคาร"
-              options={BANKS}
+              options={THAI_BANKS}
+              placeholder="— เลือกธนาคาร —"
               value={form.bank_name}
               onChange={e => set('bank_name', e.target.value)}
             />

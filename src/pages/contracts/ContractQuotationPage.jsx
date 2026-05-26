@@ -24,12 +24,12 @@ function fmt(v) {
 
 function calcProrate(startDate, monthlyRent) {
   if (!startDate || !monthlyRent) return null
-  const dt      = new Date(startDate)
-  const day     = dt.getDate()
+  const dt   = new Date(startDate)
+  const day  = dt.getDate()
   if (day === 1) return 0
   const daysInMonth = new Date(dt.getFullYear(), dt.getMonth() + 1, 0).getDate()
   const daysLeft    = daysInMonth - day + 1
-  return Math.ceil((daysLeft / daysInMonth) * Number(monthlyRent))
+  return Math.ceil((daysLeft / 30) * Number(monthlyRent))
 }
 
 function addDays(date, n) {

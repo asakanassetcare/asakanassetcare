@@ -21,7 +21,9 @@ export default function MoveOutFormModal({ open, onClose, contract, onSaved }) {
 
   useEffect(() => {
     if (open && contract) {
-      setForm({ move_out_date: contract.contract_end_date ?? today, is_early_termination: false, reason: '' })
+      // Slice to YYYY-MM-DD in case the DB returns a full timestamp string
+      const endDate = contract.contract_end_date?.slice(0, 10) ?? null
+      setForm({ move_out_date: endDate ?? today, is_early_termination: false, reason: '' })
       setErr('')
       setOutstandingInvoices([])
       if (contract.id) {
@@ -43,12 +45,12 @@ export default function MoveOutFormModal({ open, onClose, contract, onSaved }) {
     e.preventDefault()
     if (!form.move_out_date) { setErr('กรุณาระบุวันย้ายออก'); return }
 
-    // Validate: cannot move out before contract end date unless early termination
-    if (!form.is_early_termination && contract.contract_end_date) {
-      if (form.move_out_date < contract.contract_end_date) {
-        setErr('วันย้ายออกก่อนครบสัญญา หากต้องการออกก่อนกำหนดกรุณาติ๊ก "ยกเลิกก่อนกำหนด"')
-        return
-      }
+    // Slice to YYYY-MM-DD so string comparison is always safe
+    const contractEnd = contract.contract_end_date?.slice(0, 10) ?? null
+
+    if (contractEnd && !form.is_early_termination && form.move_out_date < contractEnd) {
+      setErr('วันย้ายออกก่อนครบสัญญา หากต้องการออกก่อนกำหนดกรุณาติ๊ก "ยกเลิกก่อนกำหนด"')
+      return
     }
 
     setSaving(true); setErr('')
@@ -102,15 +104,28 @@ export default function MoveOutFormModal({ open, onClose, contract, onSaved }) {
           )}
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
-          <Input label="วันที่ย้ายออก" type="date" required value={form.move_out_date} onChange={f('move_out_date')} />
-          <label className="flex items-center gap-2 cursor-pointer pb-1">
-            <input type="checkbox" checked={form.is_early_termination}
-              onChange={e => setForm(p => ({ ...p, is_early_termination: e.target.checked }))}
-              className="h-4 w-4 rounded border-gray-300 text-blue-600" />
-            <span className="text-sm text-gray-700">ยกเลิกก่อนกำหนด</span>
-          </label>
-        </div>
+        {(() => {
+          const contractEnd = contract.contract_end_date?.slice(0, 10) ?? null
+          const isBeforeEnd = contractEnd && form.move_out_date && form.move_out_date < contractEnd
+          return (
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 items-end">
+                <Input label="วันที่ย้ายออก" type="date" required value={form.move_out_date} onChange={f('move_out_date')} />
+                <label className={`flex items-center gap-2 cursor-pointer pb-1 ${isBeforeEnd ? 'text-red-600' : ''}`}>
+                  <input type="checkbox" checked={form.is_early_termination}
+                    onChange={e => setForm(p => ({ ...p, is_early_termination: e.target.checked }))}
+                    className="h-4 w-4 rounded border-gray-300 text-blue-600" />
+                  <span className="text-sm font-medium">ยกเลิกก่อนกำหนด</span>
+                </label>
+              </div>
+              {isBeforeEnd && !form.is_early_termination && (
+                <p className="text-xs text-red-600 -mt-2">
+                  ⚠ วันที่เลือกก่อนครบสัญญา ({contractEnd}) — กรุณาติ๊ก "ยกเลิกก่อนกำหนด"
+                </p>
+              )}
+            </>
+          )
+        })()}
 
         <Textarea label="หมายเหตุ / เหตุผลย้ายออก" rows={2} value={form.reason} onChange={f('reason')} />
 
