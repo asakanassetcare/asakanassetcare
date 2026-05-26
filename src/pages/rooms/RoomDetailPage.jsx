@@ -16,6 +16,14 @@ import BookingFormModal from '../../components/bookings/BookingFormModal'
 import ContractFormModal from '../../components/contracts/ContractFormModal'
 import MoveOutFormModal from '../../components/move-outs/MoveOutFormModal'
 
+function localDateString(date = new Date()) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0'),
+  ].join('-')
+}
+
 export default function RoomDetailPage() {
   const { roomId } = useParams()
   const navigate   = useNavigate()
@@ -117,14 +125,16 @@ export default function RoomDetailPage() {
         .order('due_date')
       setInvoices(invs ?? [])
 
-      // Move-out
-      const { data: mo } = await supabase
+      // Move-out for the current contract. Settled future move-outs still count.
+      const todayStr = localDateString()
+      const { data: mos } = await supabase
         .from('move_outs')
         .select('id, move_out_number, move_out_date, status')
         .eq('contract_id', ct.id)
-        .not('status', 'eq', 'settled')
-        .maybeSingle()
-      setMoveOut(mo ?? null)
+        .in('status', ['draft', 'pending_accounting', 'approved', 'settled'])
+        .order('created_at', { ascending: false })
+      const activeMoveOut = (mos ?? []).find(mo => mo.status !== 'settled' || mo.move_out_date > todayStr)
+      setMoveOut(activeMoveOut ?? null)
     } else {
       setInvoices([])
       setMoveOut(null)
@@ -289,7 +299,7 @@ export default function RoomDetailPage() {
                   <LogOut className="h-4 w-4 shrink-0 text-orange-500" />
                   <p className="text-sm text-orange-700">
                     แจ้งย้ายออกวันที่ <strong>{formatThaiDate(moveOut.move_out_date)}</strong>
-                    {' '}· สถานะ: {{ draft: 'ร่าง', pending_accounting: 'รออนุมัติ', approved: 'รอบัญชี' }[moveOut.status] ?? moveOut.status}
+                    {' '}· สถานะ: {{ draft: 'ร่าง', pending_accounting: 'รออนุมัติ', approved: 'รอบัญชี', settled: 'เคลียร์เงินแล้ว รอถึงวันย้ายออก' }[moveOut.status] ?? moveOut.status}
                   </p>
                   <Link to={`/move-outs/${moveOut.id}`} className="ml-auto text-xs text-orange-600 underline hover:no-underline">
                     ดูรายละเอียด

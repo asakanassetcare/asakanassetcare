@@ -29,6 +29,14 @@ const STATUS_CHIP = [
   { key: 'maintenance', label: 'ซ่อมบำรุง', dot: 'bg-yellow-500', chip: 'bg-yellow-100 text-yellow-700' },
 ]
 
+function localDateString(date = new Date()) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0'),
+  ].join('-')
+}
+
 export default function RoomsPage() {
   const navigate = useNavigate()
   const location = useLocation()
@@ -107,16 +115,17 @@ export default function RoomsPage() {
       }
     }
 
-    // Active move-outs (any non-settled status) → look up via contracts.room_id
+    // Active move-outs. A settled future move-out still needs to be shown.
+    const todayStr = localDateString()
     const { data: moveOuts } = await supabase
       .from('move_outs')
-      .select('id, move_out_date, status, contracts!inner(room_id)')
-      .in('status', ['draft', 'pending_accounting', 'approved'])
+      .select('id, move_out_date, status, room_id')
+      .in('status', ['draft', 'pending_accounting', 'approved', 'settled'])
 
     const moveOutByRoom = {}
     for (const mo of moveOuts ?? []) {
-      const rid = mo.contracts?.room_id
-      if (rid && !moveOutByRoom[rid]) moveOutByRoom[rid] = mo
+      if (mo.status === 'settled' && mo.move_out_date <= todayStr) continue
+      if (mo.room_id && !moveOutByRoom[mo.room_id]) moveOutByRoom[mo.room_id] = mo
     }
 
     // Pending bookings
@@ -381,7 +390,7 @@ export default function RoomsPage() {
 
                       {/* แจ้งออก */}
                       <td className="px-4 py-3">
-                        {room.moveOut && room.status !== 'available' ? (
+                        {room.moveOut ? (
                           <div>
                             <span className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-600">
                               แจ้งออก

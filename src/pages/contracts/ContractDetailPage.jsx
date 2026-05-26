@@ -27,6 +27,14 @@ const TABS = [
   { id: 'documents', label: 'เอกสาร' },
 ]
 
+function localDateString(date = new Date()) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0'),
+  ].join('-')
+}
+
 export default function ContractDetailPage() {
   const { contractId } = useParams()
   const navigate = useNavigate()
@@ -73,6 +81,7 @@ export default function ContractDetailPage() {
 
   // Move-out modal
   const [moveOutModal, setMoveOutModal] = useState(false)
+  const [existingMoveOut, setExistingMoveOut] = useState(null)
 
   // Document status
   const [docStatus, setDocStatus] = useState({ idCard: false, contract: false })
@@ -153,6 +162,16 @@ export default function ContractDetailPage() {
       .eq('contract_id', contractId)
       .order('created_at', { ascending: false })
     setRentAdvances(raData ?? [])
+
+    const todayStr = localDateString()
+    const { data: moveOuts } = await supabase
+      .from('move_outs')
+      .select('id, move_out_number, move_out_date, status')
+      .eq('contract_id', contractId)
+      .in('status', ['draft', 'pending_accounting', 'approved', 'settled'])
+      .order('created_at', { ascending: false })
+    const activeMoveOut = (moveOuts ?? []).find(mo => mo.status !== 'settled' || mo.move_out_date > todayStr)
+    setExistingMoveOut(activeMoveOut ?? null)
 
     setLoading(false)
   }
@@ -470,10 +489,17 @@ export default function ContractDetailPage() {
 
           {/* Move-out */}
           {c.status === 'active' && isOperational && (
-            <Button variant="danger" icon={<LogOut className="h-4 w-4" />}
-              onClick={() => setMoveOutModal(true)}>
-              ย้ายออก
-            </Button>
+            existingMoveOut ? (
+              <Button variant="secondary" icon={<LogOut className="h-4 w-4" />}
+                onClick={() => navigate(`/move-outs/${existingMoveOut.id}`)}>
+                ดูรายการย้ายออก {formatThaiDate(existingMoveOut.move_out_date)}
+              </Button>
+            ) : (
+              <Button variant="danger" icon={<LogOut className="h-4 w-4" />}
+                onClick={() => setMoveOutModal(true)}>
+                ย้ายออก
+              </Button>
+            )
           )}
 
           {/* Reassign staff */}
