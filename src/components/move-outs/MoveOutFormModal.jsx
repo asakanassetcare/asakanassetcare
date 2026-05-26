@@ -30,7 +30,7 @@ export default function MoveOutFormModal({ open, onClose, contract, onSaved }) {
         supabase.from('invoices')
           .select('id, invoice_number, total_amount, due_date, status')
           .eq('contract_id', contract.id)
-          .in('status', ['pending', 'overdue'])
+          .in('status', ['pending', 'overdue', 'paid_pending_approve'])
           .order('due_date')
           .then(({ data }) => setOutstandingInvoices(data ?? []))
       }

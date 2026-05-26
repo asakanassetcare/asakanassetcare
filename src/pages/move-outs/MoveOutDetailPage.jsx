@@ -232,7 +232,6 @@ export default function MoveOutDetailPage() {
   async function handleSubmitForAccounting() {
     if (mo.electric_meter_end == null || mo.water_meter_end == null) { setSubmitErr('กรุณากรอกมิเตอร์ไฟและมิเตอร์น้ำก่อน'); return }
     if (!mo.settlement_deadline) { setSubmitErr('กรุณากด "กรอกข้อมูล" และบันทึกข้อมูลก่อน'); return }
-    if (pendingAddons.length > 0) { setSubmitErr('มีค่าบริการเพิ่มเติมที่ยังไม่ได้เคลียร์ กรุณากด "กรอกข้อมูล" เพื่อรับทราบและรวมยอดก่อน'); return }
     setSubmitting(true); setSubmitErr('')
     const { error } = await supabase.from('move_outs').update({
       status: 'pending_accounting',
