@@ -611,8 +611,18 @@ export default function RoomDetailPage() {
                 </>
               )}
 
+              {room.status === 'occupied' && room.is_rentable !== false && moveOut && !booking && (
+                <ActionBtn icon={<BookOpen className="h-4 w-4" />} label="สร้างการจองล่วงหน้า"
+                  onClick={() => setBookingOpen(true)} color="blue" />
+              )}
+
               {room.status === 'reserved' && booking && (
                 <ActionBtn icon={<BookOpen className="h-4 w-4" />} label="จัดการการจอง"
+                  onClick={() => navigate(`/bookings/${booking.id}`)} color="orange" />
+              )}
+
+              {room.status === 'occupied' && booking && (
+                <ActionBtn icon={<BookOpen className="h-4 w-4" />} label="จัดการการจองล่วงหน้า"
                   onClick={() => navigate(`/bookings/${booking.id}`)} color="orange" />
               )}
 

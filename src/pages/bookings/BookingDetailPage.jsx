@@ -24,6 +24,14 @@ const DEPOSIT_ACTION_OPTS = [
   { value: 'kept',     label: 'ยึดเงินจอง' },
 ]
 
+function localDateString(date = new Date()) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0'),
+  ].join('-')
+}
+
 export default function BookingDetailPage() {
   const { bookingId } = useParams()
   const navigate      = useNavigate()
@@ -42,6 +50,7 @@ export default function BookingDetailPage() {
 
   // Contract
   const [contractModal, setContractModal] = useState(false)
+  const [contractBlockReason, setContractBlockReason] = useState('')
 
   // Payment recording
   const [payModal,      setPayModal]      = useState(false)
@@ -68,6 +77,7 @@ export default function BookingDetailPage() {
       .single()
     if (!data) { navigate('/bookings'); return }
     setBooking(data)
+    setContractBlockReason(await getContractBlockReason(data.room_id))
 
     if (data.slip_url) {
       const { data: urlData } = await supabase.storage
@@ -77,6 +87,35 @@ export default function BookingDetailPage() {
     }
 
     setLoading(false)
+  }
+
+  async function getContractBlockReason(roomId) {
+    const todayStr = localDateString()
+    const { data: contracts, error } = await supabase
+      .from('contracts')
+      .select('id, contract_number, status')
+      .eq('room_id', roomId)
+      .in('status', ['pending_approve', 'approved', 'active'])
+      .order('created_at', { ascending: false })
+    if (error) return error.message
+    if (!contracts?.length) return ''
+
+    const activeContract = contracts.find(c => c.status === 'active')
+    const blockingContract = contracts.find(c => c.status !== 'active')
+    if (blockingContract) return `ห้องนี้มีสัญญา ${blockingContract.contract_number ?? ''} ที่ยังไม่เสร็จสิ้น`
+    if (!activeContract) return ''
+
+    const { data: moveOut } = await supabase
+      .from('move_outs')
+      .select('id, move_out_date, status')
+      .eq('contract_id', activeContract.id)
+      .in('status', ['approved', 'settled'])
+      .lte('move_out_date', todayStr)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    return moveOut ? '' : 'ห้องนี้ยังมีผู้เช่าเดิมอยู่ ต้องรอให้หัวหน้าอนุมัติแจ้งออกและถึงวันย้ายออกก่อนสร้างสัญญา'
   }
 
   function openPayModal() {
@@ -181,6 +220,7 @@ export default function BookingDetailPage() {
               <Button
                 icon={<FileText className="h-4 w-4" />}
                 onClick={() => setContractModal(true)}
+                disabled={!!contractBlockReason}
               >
                 แปลงเป็นสัญญา
               </Button>
@@ -195,6 +235,12 @@ export default function BookingDetailPage() {
           )}
         </div>
       </div>
+
+      {canAct && contractBlockReason && (
+        <div className="mb-4 max-w-3xl rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          {contractBlockReason}
+        </div>
+      )}
 
       <div className="grid gap-4 lg:grid-cols-2 max-w-3xl">
         {/* Room */}

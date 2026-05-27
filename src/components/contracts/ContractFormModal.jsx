@@ -20,6 +20,14 @@ const EMPTY = {
   note: '',
 }
 
+function localDateString(date = new Date()) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0'),
+  ].join('-')
+}
+
 export default function ContractFormModal({ open, onClose, onSaved, prefillRoom, prefillBooking }) {
   const { profile } = useAuth()
   const [form,         setForm]         = useState(EMPTY)
@@ -90,6 +98,35 @@ export default function ContractFormModal({ open, onClose, onSaved, prefillRoom,
     setStaff(stf?.map(s => ({ value: s.id, label: s.full_name })) ?? [])
   }
 
+  async function getContractBlockReason(roomId) {
+    const todayStr = localDateString()
+    const { data: contracts, error } = await supabase
+      .from('contracts')
+      .select('id, contract_number, status')
+      .eq('room_id', roomId)
+      .in('status', ['pending_approve', 'approved', 'active'])
+      .order('created_at', { ascending: false })
+    if (error) return error.message
+    if (!contracts?.length) return ''
+
+    const activeContract = contracts.find(c => c.status === 'active')
+    const blockingContract = contracts.find(c => c.status !== 'active')
+    if (blockingContract) return `ห้องนี้มีสัญญา ${blockingContract.contract_number ?? ''} ที่ยังไม่เสร็จสิ้น`
+    if (!activeContract) return ''
+
+    const { data: moveOut } = await supabase
+      .from('move_outs')
+      .select('id, move_out_date, status')
+      .eq('contract_id', activeContract.id)
+      .in('status', ['approved', 'settled'])
+      .lte('move_out_date', todayStr)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+
+    return moveOut ? '' : 'ห้องนี้ยังมีผู้เช่าเดิมอยู่ ต้องรอให้หัวหน้าอนุมัติแจ้งออกและถึงวันย้ายออกก่อนสร้างสัญญา'
+  }
+
   function set(field, val) {
     setForm(p => {
       const next = { ...p, [field]: val }
@@ -144,6 +181,9 @@ export default function ContractFormModal({ open, onClose, onSaved, prefillRoom,
     }
     setError('')
     setSaving(true)
+
+    const blockReason = await getContractBlockReason(form.room_id)
+    if (blockReason) { setSaving(false); setError(blockReason); return }
 
     const payload = {
       room_id:                  form.room_id,

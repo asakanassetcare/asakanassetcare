@@ -10,6 +10,14 @@ import Textarea from '../ui/Textarea'
 import TenantSelect from '../shared/TenantSelect'
 import { THAI_BANKS } from '../../lib/banks'
 
+function localDateString(date = new Date()) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, '0'),
+    String(date.getDate()).padStart(2, '0'),
+  ].join('-')
+}
+
 export default function BookingFormModal({ open, onClose, onSaved, prefillRoomId }) {
   const { profile } = useAuth()
   const [rooms,    setRooms]    = useState([])
@@ -35,17 +43,53 @@ export default function BookingFormModal({ open, onClose, onSaved, prefillRoomId
   }, [open, prefillRoomId])
 
   async function fetchRooms() {
-    const { data: rms } = await supabase.from('rooms')
-      .select('id, room_number, buildings(name)')
-      .eq('status', 'available')
-      .eq('is_rentable', true)
-      .order('room_number')
-    const list = rms ?? []
+    const todayStr = localDateString()
+    const [{ data: availableRooms }, { data: activeContracts }, { data: waitingBookings }] = await Promise.all([
+      supabase.from('rooms')
+        .select('id, room_number, status, buildings(name)')
+        .eq('status', 'available')
+        .eq('is_rentable', true)
+        .order('room_number'),
+      supabase.from('contracts')
+        .select('id, room_id, rooms(id, room_number, status, is_rentable, buildings(name))')
+        .eq('status', 'active'),
+      supabase.from('bookings')
+        .select('room_id')
+        .eq('status', 'waiting'),
+    ])
+
+    const bookedRoomIds = new Set((waitingBookings ?? []).map(b => b.room_id).filter(Boolean))
+    const activeIds = (activeContracts ?? []).map(c => c.id)
+    const { data: moveOuts } = activeIds.length > 0
+      ? await supabase.from('move_outs')
+        .select('id, contract_id, move_out_date, status')
+        .in('contract_id', activeIds)
+        .in('status', ['draft', 'pending_accounting', 'approved', 'settled'])
+      : { data: [] }
+
+    const activeById = Object.fromEntries((activeContracts ?? []).map(c => [c.id, c]))
+    const listById = new Map()
+    for (const r of availableRooms ?? []) {
+      if (!bookedRoomIds.has(r.id)) listById.set(r.id, { ...r, _bookingMode: 'available' })
+    }
+    for (const mo of moveOuts ?? []) {
+      if (mo.status === 'settled' && mo.move_out_date <= todayStr) continue
+      const contract = activeById[mo.contract_id]
+      const room = contract?.rooms
+      if (!room?.id || room.is_rentable === false || bookedRoomIds.has(room.id)) continue
+      listById.set(room.id, { ...room, _bookingMode: 'scheduled', _moveOutDate: mo.move_out_date })
+    }
+
+    const list = [...listById.values()].sort((a, b) => String(a.room_number).localeCompare(String(b.room_number), 'th'))
     if (prefillRoomId && !list.find(r => r.id === prefillRoomId)) {
       setForm(p => ({ ...p, room_id: '' }))
       setError('ห้องนี้ไม่พร้อมให้จอง')
     }
-    setRooms(list.map(r => ({ value: r.id, label: `${r.buildings?.name ?? ''} — ${r.room_number}` })))
+    setRooms(list.map(r => ({
+      value: r.id,
+      label: `${r.buildings?.name ?? ''} — ${r.room_number}${r._bookingMode === 'scheduled' ? ` (จองหลังแจ้งออก ${r._moveOutDate})` : ''}`,
+      ...r,
+    })))
   }
 
   function set(field, val) { setForm(p => ({ ...p, [field]: val })) }
@@ -84,9 +128,6 @@ export default function BookingFormModal({ open, onClose, onSaved, prefillRoomId
     })
 
     if (insertErr) { setSaving(false); setError(insertErr.message); return }
-
-    // Update room status to reserved
-    await supabase.from('rooms').update({ status: 'reserved' }).eq('id', form.room_id)
 
     setSaving(false)
     onSaved?.()
