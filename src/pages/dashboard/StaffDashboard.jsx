@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { BookOpen, FileText, CalendarClock, DoorOpen, Wrench, Hash, LogOut, Search, X, AlertCircle } from 'lucide-react'
+import { BookOpen, FileText, CalendarClock, DoorOpen, Wrench, Hash, LogOut, Search, X, AlertCircle, LogIn } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
 import Button from '../../components/ui/Button'
@@ -11,6 +11,7 @@ export default function StaffDashboard() {
   const navigate = useNavigate()
   const [loading, setLoading] = useState(true)
   const [bookings, setBookings] = useState([])
+  const [moveInReadyContracts, setMoveInReadyContracts] = useState([])
   const [pendingContracts, setPendingContracts] = useState([])
   const [expiringContracts, setExpiringContracts] = useState([])
   const [roomStats, setRoomStats] = useState({ total: 0, available: 0, reserved: 0 })
@@ -26,12 +27,22 @@ export default function StaffDashboard() {
     const in30  = new Date(Date.now() + 30 * 86400_000).toISOString().slice(0, 10)
     const today = new Date().toISOString().slice(0, 10)
 
-    const [bk, pending, expiring, rooms, maintenance, moveOuts, overdue, debts] = await Promise.all([
+    const [bk, moveInReady, pending, expiring, rooms, maintenance, moveOuts, overdue, debts] = await Promise.all([
       supabase.from('bookings').select(`
         id, booking_number, created_at,
         rooms(room_number, buildings(name)),
         tenants(full_name)
       `).eq('created_by', profile.id).eq('status', 'waiting').order('created_at', { ascending: false }),
+
+      supabase.from('contracts').select(`
+        id, contract_number, move_in_date,
+        rooms(room_number, buildings(name)),
+        tenants(full_name),
+        invoices(id, invoice_number, invoice_type, status, total_amount)
+      `).eq('assigned_staff_id', profile.id)
+        .eq('status', 'approved')
+        .is('actual_move_in_at', null)
+        .order('move_in_date', { ascending: true }),
 
       supabase.from('contracts').select(`
         id, contract_number,
@@ -79,6 +90,10 @@ export default function StaffDashboard() {
       reserved:  allRooms.filter(r => r.status === 'reserved').length,
     })
     setBookings(bk.data ?? [])
+    setMoveInReadyContracts((moveInReady.data ?? []).filter(c => {
+      const requiredInvoices = (c.invoices ?? []).filter(inv => ['contract_initial', 'monthly_rent'].includes(inv.invoice_type))
+      return requiredInvoices.every(inv => inv.status === 'paid')
+    }))
     setPendingContracts(pending.data ?? [])
     setExpiringContracts(expiring.data ?? [])
     setMaintenanceActive(maintenance.count ?? 0)
@@ -103,6 +118,7 @@ export default function StaffDashboard() {
   }
 
   const filteredExpiring  = filterItems(expiringContracts)
+  const filteredMoveIns   = filterItems(moveInReadyContracts)
   const filteredPending   = filterItems(pendingContracts)
   const filteredBookings  = filterItems(bookings)
   const filteredOverdue   = filterItems(overdueInvoices)
@@ -114,8 +130,8 @@ export default function StaffDashboard() {
            mo?.rooms?.room_number?.toLowerCase().includes(q) ||
            mo?.tenants?.full_name?.toLowerCase().includes(q)
   })
-  const hasItems   = expiringContracts.length > 0 || pendingContracts.length > 0 || bookings.length > 0 || overdueInvoices.length > 0 || debtSettlements.length > 0
-  const hasResults = filteredExpiring.length > 0 || filteredPending.length > 0 || filteredBookings.length > 0 || filteredOverdue.length > 0 || filteredDebts.length > 0
+  const hasItems   = expiringContracts.length > 0 || moveInReadyContracts.length > 0 || pendingContracts.length > 0 || bookings.length > 0 || overdueInvoices.length > 0 || debtSettlements.length > 0
+  const hasResults = filteredExpiring.length > 0 || filteredMoveIns.length > 0 || filteredPending.length > 0 || filteredBookings.length > 0 || filteredOverdue.length > 0 || filteredDebts.length > 0
 
   return (
     <div>
@@ -232,6 +248,21 @@ export default function StaffDashboard() {
         </Section>
       )}
 
+      {filteredMoveIns.length > 0 && (
+        <Section title="รอบันทึกเข้าพัก" count={filteredMoveIns.length} accent="border-green-400">
+          {filteredMoveIns.map(c => (
+            <ItemRow
+              key={c.id}
+              number={c.contract_number}
+              sub={`${c.rooms?.buildings?.name} · ห้อง ${c.rooms?.room_number} · ${c.tenants?.full_name}`}
+              tag={<Tag color="green">{c.move_in_date ? `กำหนด ${formatDate(c.move_in_date)}` : 'พร้อมเข้าพัก'}</Tag>}
+              actionLabel="บันทึกเข้าพัก"
+              onClick={() => navigate(`/contracts/${c.id}`)}
+            />
+          ))}
+        </Section>
+      )}
+
       {filteredPending.length > 0 && (
         <Section title="สัญญารออนุมัติ" count={filteredPending.length} accent="border-purple-400">
           {filteredPending.map(c => (
@@ -322,6 +353,7 @@ function Tag({ color, children }) {
     purple: 'bg-purple-50 text-purple-600',
     amber:  'bg-amber-50 text-amber-600',
     orange: 'bg-orange-50 text-orange-600',
+    green:  'bg-green-50 text-green-600',
   }
   return (
     <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-medium ${map[color]}`}>
@@ -343,4 +375,8 @@ function ItemRow({ number, sub, tag, actionLabel, onClick }) {
       </div>
     </div>
   )
+}
+
+function formatDate(dateStr) {
+  return new Date(dateStr + 'T00:00:00').toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })
 }
