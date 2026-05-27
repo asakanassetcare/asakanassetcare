@@ -158,6 +158,8 @@ export default function StaffDashboard() {
       <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
         <StatCard icon={BookOpen}      label="Booking รอแปลงสัญญา"   value={bookings.length}          color="amber"
           onClick={() => navigate('/bookings',  { state: { filterStatus: 'waiting' } })} />
+        <StatCard icon={LogIn}         label="รอบันทึกเข้าพัก"       value={moveInReadyContracts.length} color="green"
+          onClick={() => navigate('/contracts', { state: { filterStatus: 'approved' } })} />
         <StatCard icon={FileText}      label="สัญญารออนุมัติ"        value={pendingContracts.length}  color="purple"
           onClick={() => navigate('/contracts', { state: { filterStatus: 'pending_approve' } })} />
         <StatCard icon={CalendarClock} label="สัญญาใกล้หมด (30 วัน)" value={expiringContracts.length} color="red"
