@@ -92,9 +92,10 @@ export default function ContractQuotationPage() {
   const advance     = Number(c.advance_rent_amount || 0)
   const payDay      = c.payment_day ?? 5
 
-  const prorated     = calcProrate(c.contract_start_date, monthlyRent)
-  const hasProrate   = prorated != null && prorated > 0
-  const firstPayment = deposit + advance + (hasProrate ? prorated : 0)
+  const prorated        = calcProrate(c.contract_start_date, monthlyRent)
+  const hasProrate      = prorated != null && prorated > 0
+  const bookingDeposit  = Number(c.booking_deposit_applied || 0)
+  const firstPayment    = deposit + advance + (hasProrate ? prorated : 0) - bookingDeposit
 
   const months = (() => {
     if (!c.contract_start_date || !c.contract_end_date) return null
@@ -207,7 +208,8 @@ export default function ContractQuotationPage() {
                 <tr><td colSpan={2} className="py-1.5"><div className="border-t border-dashed border-slate-300" /></td></tr>
                 <MoneyRow label="เงินประกัน"      value={deposit} />
                 {advance > 0 && <MoneyRow label="ค่าเช่าล่วงหน้า" value={advance} />}
-                {hasProrate   && <MoneyRow label="ค่าเช่า prorated *" value={prorated} />}
+                {hasProrate      && <MoneyRow label="ค่าเช่า prorated *" value={prorated} />}
+                {bookingDeposit > 0 && <MoneyRow label="หักเงินจอง" value={-bookingDeposit} />}
                 <tr><td colSpan={2} className="py-1"><div className="border-t border-slate-500" /></td></tr>
                 <MoneyRow label="ยอดชำระแรกเข้า" value={firstPayment} bold />
               </tbody>

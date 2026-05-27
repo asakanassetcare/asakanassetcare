@@ -201,7 +201,14 @@ export default function ContractDetailPage() {
     if (!ids.length) { setReceipts([]); return }
     const { data } = await supabase
       .from('payments')
-      .select('id, amount, paid_date, bank_name, bank_reference, approved_at, invoices(id, invoice_number, invoice_type, billing_period)')
+      .select(`
+        id, amount, paid_date, bank_name, bank_reference, note, approved_at,
+        invoices(
+          id, invoice_number, invoice_type, billing_period, total_amount,
+          rooms(room_number, buildings(name)),
+          tenants(full_name, phone)
+        )
+      `)
       .in('invoice_id', ids)
       .eq('status', 'approved')
       .order('approved_at', { ascending: false })
@@ -848,15 +855,12 @@ export default function ContractDetailPage() {
                     </div>
                     <div className="flex items-center gap-3">
                       <span className="text-sm font-semibold text-gray-900">฿{Number(pmt.amount).toLocaleString('th-TH')}</span>
-                      <button
-                        onClick={async () => {
-                          const { data } = await supabase.storage.from('payment-slips').createSignedUrl(`receipts/${pmt.id}.pdf`, 3600)
-                          if (data?.signedUrl) window.open(data.signedUrl, '_blank')
-                        }}
-                        className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-50"
-                      >
-                        ดาวน์โหลด
-                      </button>
+                      <PdfDownloadButton
+                        document={<ReceiptPDF payment={pmt} invoice={pmt.invoices} company={settings?.company ?? {}} />}
+                        filename={`receipt_${pmt.invoices?.invoice_number ?? pmt.id}.pdf`}
+                        label="ดาวน์โหลด"
+                        size="sm"
+                      />
                     </div>
                   </div>
                 ))}

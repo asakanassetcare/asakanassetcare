@@ -68,7 +68,7 @@ const S = StyleSheet.create({
   noteTxt:   { fontSize: 8.8, color: '#374151', lineHeight: 1.65, paddingRight: 8 },
 
   // ── Signatures ──────────────────────────────────────────────
-  sigRow:    { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+  sigRow:    { flexDirection: 'row', justifyContent: 'center', marginBottom: 8 },
   sigBox:    { alignItems: 'center', width: 205 },
   sigSpace:  { height: 38 },
   sigLine:   { width: 185, borderBottomWidth: 0.8, borderBottomColor: '#111827', marginBottom: 6 },
@@ -212,12 +212,6 @@ export default function AdvancePaymentReceiptPDF({ advancePayment, contract, com
             <View style={S.sigSpace} />
             <View style={S.sigLine} />
             <Text style={S.sigLbl}>{keep('ผู้รับเงิน / Authorized Signature')}</Text>
-            <Text style={S.sigDate}>{keep('วันที่ .....................................................')}</Text>
-          </View>
-          <View style={S.sigBox}>
-            <View style={S.sigSpace} />
-            <View style={S.sigLine} />
-            <Text style={S.sigLbl}>{keep('ผู้ชำระเงิน / Payer Signature')}</Text>
             <Text style={S.sigDate}>{keep('วันที่ .....................................................')}</Text>
           </View>
         </View>

@@ -185,7 +185,15 @@ export default function TenantDetailPage() {
     e.preventDefault()
     if (!form.full_name.trim()) { setError('กรุณากรอกชื่อ-นามสกุล'); return }
     if (!form.phone.trim())     { setError('กรุณากรอกเบอร์โทร'); return }
+    if (!form.birth_date)       { setError('กรุณากรอกวันเกิด'); return }
     if (isNew && !idCard.trim()) { setError(isForeigner ? 'กรุณากรอกเลขหนังสือเดินทาง' : 'กรุณากรอกเลขบัตรประชาชน (ใช้เป็นตัวระบุหลัก)'); return }
+    if (!form.address_house_no.trim())    { setError('กรุณากรอกบ้านเลขที่'); return }
+    if (!form.address_road.trim())        { setError('กรุณากรอกถนน'); return }
+    if (!form.address_subdistrict.trim()) { setError('กรุณากรอกแขวง/ตำบล'); return }
+    if (!form.address_district.trim())    { setError('กรุณากรอกเขต/อำเภอ'); return }
+    if (!form.address_province.trim())    { setError('กรุณากรอกจังหวัด'); return }
+    if (!form.emergency_contact_name.trim())  { setError('กรุณากรอกชื่อผู้ติดต่อฉุกเฉิน'); return }
+    if (!form.emergency_contact_phone.trim()) { setError('กรุณากรอกเบอร์โทรผู้ติดต่อฉุกเฉิน'); return }
     setError('')
     setSaving(true)
 
@@ -291,7 +299,7 @@ export default function TenantDetailPage() {
             <Input label="เบอร์โทร" required phone value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="0810000000" />
             <Input label="อีเมล" type="email" value={form.email} onChange={e => set('email', e.target.value)} />
             <Input label="Line ID" value={form.line_id} onChange={e => set('line_id', e.target.value)} placeholder="@lineid" />
-            <Input label="วันเกิด" type="date" value={form.birth_date} onChange={e => set('birth_date', e.target.value)} />
+            <Input label="วันเกิด" required type="date" value={form.birth_date} onChange={e => set('birth_date', e.target.value)} />
 
             <div className="col-span-2">
               <IdCardField
@@ -306,23 +314,23 @@ export default function TenantDetailPage() {
             </div>
 
             <div className="col-span-2">
-              <p className="mb-2 text-sm font-medium text-gray-700">ที่อยู่ตามบัตรประชาชน</p>
+              <p className="mb-2 text-sm font-medium text-gray-700">ที่อยู่ตามบัตรประชาชน <span className="text-red-500">*</span></p>
               <div className="grid grid-cols-2 gap-3">
-                <Input label="บ้านเลขที่" value={form.address_house_no} onChange={e => set('address_house_no', e.target.value)} />
-                <Input label="ถนน" value={form.address_road} onChange={e => set('address_road', e.target.value)} />
-                <Input label="แขวง/ตำบล" value={form.address_subdistrict} onChange={e => set('address_subdistrict', e.target.value)} />
-                <Input label="เขต/อำเภอ" value={form.address_district} onChange={e => set('address_district', e.target.value)} />
-                <Input label="จังหวัด" value={form.address_province} onChange={e => set('address_province', e.target.value)} />
+                <Input label="บ้านเลขที่" required value={form.address_house_no} onChange={e => set('address_house_no', e.target.value)} />
+                <Input label="ถนน" required value={form.address_road} onChange={e => set('address_road', e.target.value)} />
+                <Input label="แขวง/ตำบล" required value={form.address_subdistrict} onChange={e => set('address_subdistrict', e.target.value)} />
+                <Input label="เขต/อำเภอ" required value={form.address_district} onChange={e => set('address_district', e.target.value)} />
+                <Input label="จังหวัด" required value={form.address_province} onChange={e => set('address_province', e.target.value)} />
               </div>
             </div>
 
             <Textarea label="ที่อยู่อื่น (ถ้ามี)" rows={2} value={form.address} onChange={e => set('address', e.target.value)} wrapperClass="col-span-2" />
 
             <div className="col-span-2">
-              <p className="mb-3 text-sm font-medium text-gray-700">ผู้ติดต่อฉุกเฉิน</p>
+              <p className="mb-3 text-sm font-medium text-gray-700">ผู้ติดต่อฉุกเฉิน <span className="text-red-500">*</span></p>
               <div className="grid grid-cols-2 gap-3">
-                <Input label="ชื่อ" value={form.emergency_contact_name} onChange={e => set('emergency_contact_name', e.target.value)} />
-                <Input label="เบอร์โทร" phone value={form.emergency_contact_phone} onChange={e => set('emergency_contact_phone', e.target.value)} />
+                <Input label="ชื่อ" required value={form.emergency_contact_name} onChange={e => set('emergency_contact_name', e.target.value)} />
+                <Input label="เบอร์โทร" required phone value={form.emergency_contact_phone} onChange={e => set('emergency_contact_phone', e.target.value)} />
               </div>
             </div>
 

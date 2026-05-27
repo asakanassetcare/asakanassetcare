@@ -70,17 +70,19 @@ export default function RoomsPage() {
 
     // Current tenant comes from the active contract.
     let contractTenantMap = {}
+    let contractRentMap = {}
     let activeContracts = []
     if (roomIds.length > 0) {
       const { data: cts } = await supabase
         .from('contracts')
-        .select('id, room_id, checklist_in_url, tenants(id, full_name, phone, line_user_id)')
+        .select('id, room_id, monthly_rent, checklist_in_url, tenants(id, full_name, phone, line_user_id)')
         .in('room_id', roomIds)
         .eq('status', 'active')
 
       activeContracts = cts ?? []
       for (const ct of activeContracts) {
         if (ct.room_id && ct.tenants) contractTenantMap[ct.room_id] = ct.tenants
+        if (ct.room_id) contractRentMap[ct.room_id] = ct.monthly_rent
       }
 
       // doc completeness check
@@ -163,6 +165,7 @@ export default function RoomsPage() {
         ...r,
         status:        derivedStatus,
         tenants:       contractTenantMap[r.id] ?? null,
+        currentRent:   contractRentMap[r.id] ?? null,
         moveOut:       moveOutByRoom[r.id] ?? null,
         booking,
         overdueAmount: overdueByRoom[r.id] ?? 0,
@@ -374,7 +377,7 @@ export default function RoomsPage() {
 
                       {/* ค่าเช่า */}
                       <td className="px-4 py-3 text-right font-semibold text-gray-800">
-                        ฿{Number(room.base_rent).toLocaleString('th-TH')}
+                        ฿{Number(room.currentRent ?? room.base_rent).toLocaleString('th-TH')}
                       </td>
 
                       {/* ชื่อผู้เช่า */}

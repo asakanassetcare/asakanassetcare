@@ -330,7 +330,7 @@ export default function RoomDetailPage() {
               <InfoRow label="ประเภทห้อง"  value={room.room_types?.name ?? '—'} />
               <InfoRow label="ขนาด"        value={room.size_sqm ? `${room.size_sqm} ม²` : '—'} />
               <InfoRow label="ชั้น"         value={room.floor ?? '—'} />
-              <InfoRow label="ค่าเช่า/เดือน" value={`฿${Number(room.base_rent).toLocaleString('th-TH')}`} />
+              <InfoRow label="ค่าเช่า/เดือน" value={`฿${Number(contract?.monthly_rent ?? room.base_rent).toLocaleString('th-TH')}`} />
               {room.water_rate && (
                 <InfoRow label="ค่าน้ำ/หน่วย" value={`฿${Number(room.water_rate).toLocaleString('th-TH')}`} />
               )}

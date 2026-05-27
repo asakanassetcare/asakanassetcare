@@ -60,7 +60,7 @@ const S = StyleSheet.create({
   noteLbl:    { fontSize: 8.2, color: '#6b7280', marginBottom: 4 },
   noteTxt:    { fontSize: 8.8, color: '#374151', lineHeight: 1.65, paddingRight: 8 },
 
-  sigRow:     { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 8 },
+  sigRow:     { flexDirection: 'row', justifyContent: 'center', marginBottom: 8 },
   sigBox:     { alignItems: 'center', width: 205 },
   sigSpace:   { height: 38 },
   sigLine:    { width: 185, borderBottomWidth: 0.8, borderBottomColor: '#111827', marginBottom: 6 },
@@ -206,7 +206,7 @@ export default function ReceiptPDF({ payment, invoice: inv, company = {} }) {
         <View style={S.note}>
           <Text style={S.noteLbl}>{k('หมายเหตุ')}</Text>
           <Text style={S.noteTxt}>
-            {k('เอกสารนี้ออกโดยระบบคอมพิวเตอร์ ใช้เป็นหลักฐานการรับชำระเงินอย่างเป็นทางการ')}
+            {k('เอกสารนี้ออกโดยระบบคอมพิวเตอร์ ใช้เป็นหลักฐานการรับชำระเงินชั่วคราว')}
           </Text>
         </View>
 
@@ -218,18 +218,12 @@ export default function ReceiptPDF({ payment, invoice: inv, company = {} }) {
             <Text style={S.sigLbl}>{k('ผู้รับเงิน / Authorized Signature')}</Text>
             <Text style={S.sigDate}>{k('วันที่ .....................................................')}</Text>
           </View>
-          <View style={S.sigBox}>
-            <View style={S.sigSpace} />
-            <View style={S.sigLine} />
-            <Text style={S.sigLbl}>{k('ผู้ชำระเงิน / Payer Signature')}</Text>
-            <Text style={S.sigDate}>{k('วันที่ .....................................................')}</Text>
-          </View>
         </View>
 
         {/* Footer */}
         <View style={S.footer}>
           <Text style={S.footerTxt}>
-            {k('เอกสารนี้ออกโดยระบบคอมพิวเตอร์  ·  ใช้เป็นหลักฐานการรับชำระเงินอย่างเป็นทางการ')}
+            {k('เอกสารนี้ออกโดยระบบคอมพิวเตอร์  ·  ใช้เป็นหลักฐานการรับชำระเงินชั่วคราว')}
             {company.email ? `  ·  ${company.email}` : ''}
           </Text>
         </View>

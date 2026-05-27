@@ -251,8 +251,8 @@ export default function BookingDetailPage() {
           </p>
           <p className="mt-0.5 text-sm text-gray-500">{booking.rooms?.buildings?.projects?.name}</p>
           <div className="mt-3 flex gap-4 text-sm text-gray-600">
-            <span>ค่าเช่า ฿{Number(booking.rooms?.base_rent ?? 0).toLocaleString('th-TH')}</span>
-            <span>ประกัน ฿{Number(booking.rooms?.base_deposit ?? 0).toLocaleString('th-TH')}</span>
+            <span>ค่าเช่า {Number(booking.rooms?.base_rent) > 0 ? `฿${Number(booking.rooms.base_rent).toLocaleString('th-TH')}` : 'สอบถาม'}</span>
+            <span>ประกัน {Number(booking.rooms?.base_deposit) > 0 ? `฿${Number(booking.rooms.base_deposit).toLocaleString('th-TH')}` : 'สอบถาม'}</span>
           </div>
         </Card>
 
