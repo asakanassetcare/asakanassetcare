@@ -70,6 +70,7 @@ export default function RoomsPage() {
 
     // Current tenant comes from the active contract.
     let contractTenantMap = {}
+    let activeContracts = []
     if (roomIds.length > 0) {
       const { data: cts } = await supabase
         .from('contracts')
@@ -77,7 +78,7 @@ export default function RoomsPage() {
         .in('room_id', roomIds)
         .eq('status', 'active')
 
-      const activeContracts = cts ?? []
+      activeContracts = cts ?? []
       for (const ct of activeContracts) {
         if (ct.room_id && ct.tenants) contractTenantMap[ct.room_id] = ct.tenants
       }
@@ -117,10 +118,14 @@ export default function RoomsPage() {
 
     // Active move-outs. A settled future move-out still needs to be shown.
     const todayStr = localDateString()
-    const { data: moveOuts } = await supabase
-      .from('move_outs')
-      .select('id, move_out_date, status, room_id')
-      .in('status', ['draft', 'pending_accounting', 'approved', 'settled'])
+    const activeContractIds = activeContracts.map(ct => ct.id)
+    const { data: moveOuts } = activeContractIds.length > 0
+      ? await supabase
+        .from('move_outs')
+        .select('id, move_out_date, status, room_id, contract_id')
+        .in('contract_id', activeContractIds)
+        .in('status', ['draft', 'pending_accounting', 'approved', 'settled'])
+      : { data: [] }
 
     const moveOutByRoom = {}
     for (const mo of moveOuts ?? []) {
