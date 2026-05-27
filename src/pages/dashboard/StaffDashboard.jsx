@@ -92,7 +92,7 @@ export default function StaffDashboard() {
     setBookings(bk.data ?? [])
     setMoveInReadyContracts((moveInReady.data ?? []).filter(c => {
       const requiredInvoices = (c.invoices ?? []).filter(inv => ['contract_initial', 'monthly_rent'].includes(inv.invoice_type))
-      return requiredInvoices.every(inv => inv.status === 'paid')
+      return requiredInvoices.length > 0 && requiredInvoices.every(inv => inv.status === 'paid')
     }))
     setPendingContracts(pending.data ?? [])
     setExpiringContracts(expiring.data ?? [])
