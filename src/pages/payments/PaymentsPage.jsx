@@ -117,7 +117,7 @@ export default function PaymentsPage() {
       supabase.from('payments').select(`
         id, amount, paid_date, bank_name, bank_reference, slip_url, status, created_at,
         accounting_recorded_at, accounting_recorded_by,
-        invoices(id, invoice_number, invoice_type, total_amount,
+        invoices(id, invoice_number, invoice_type, total_amount, due_date,
           rooms(room_number, building_id, buildings(id, name)),
           tenants(full_name, line_user_id)),
         recorder:profiles!recorded_by(full_name),
@@ -235,6 +235,11 @@ export default function PaymentsPage() {
       rejected_at: new Date().toISOString(),
       rejection_reason: rejectReason.trim(),
     }).eq('id', rejectTarget.id)
+    if (!error && rejectTarget.invoices?.id) {
+      const today = new Date().toISOString().slice(0, 10)
+      const restoredStatus = rejectTarget.invoices.due_date < today ? 'overdue' : 'pending'
+      await supabase.from('invoices').update({ status: restoredStatus }).eq('id', rejectTarget.invoices.id)
+    }
     setRejecting(false)
     if (error) { setRejectErr(error.message); return }
     setRejectModal(false)

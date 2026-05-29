@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom'
-import { ChevronRight, CheckCircle, XCircle, LogIn, Upload, UserCog, LogOut, Wallet } from 'lucide-react'
+import { ChevronRight, CheckCircle, XCircle, LogIn, Upload, UserCog, LogOut, Wallet, CreditCard } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
 import Button from '../../components/ui/Button'
@@ -65,6 +65,12 @@ export default function ContractDetailPage() {
   const [rejecting,    setRejecting]    = useState(false)
   const [rejectErr,    setRejectErr]    = useState('')
 
+  // Cancel approved contract that cannot move in
+  const [cancelContractModal,  setCancelContractModal]  = useState(false)
+  const [cancelContractReason, setCancelContractReason] = useState('')
+  const [cancelContracting,    setCancelContracting]    = useState(false)
+  const [cancelContractErr,    setCancelContractErr]    = useState('')
+
   // Move-in
   const [moveInModal,           setMoveInModal]           = useState(false)
   const [checklistInFile,       setChecklistInFile]       = useState(null)
@@ -128,7 +134,6 @@ export default function ContractDetailPage() {
         .select('id, invoice_number, status, total_amount, due_date, billing_period')
         .eq('contract_id', contractId)
         .eq('invoice_type', 'monthly_rent')
-        .not('status', 'in', '("cancelled","rejected")')
         .order('created_at')
         .limit(1)
         .maybeSingle(),
@@ -242,7 +247,31 @@ export default function ContractDetailPage() {
     fetchContract()
   }
 
+  async function handleCancelContract() {
+    if (!cancelContractReason.trim()) {
+      setCancelContractErr('กรุณากรอกเหตุผลการยกเลิก')
+      return
+    }
+    setCancelContracting(true)
+    const { error } = await supabase.from('contracts')
+      .update({ status: 'cancelled' })
+      .eq('id', contractId)
+    if (!error && c.rooms?.id) {
+      await supabase.from('rooms').update({ status: 'available' }).eq('id', c.rooms.id)
+    }
+    setCancelContracting(false)
+    if (error) { setCancelContractErr(error.message); return }
+    setCancelContractModal(false)
+    setCancelContractReason('')
+    fetchContract()
+  }
+
   async function handleMoveIn() {
+    if (blockMoveIn) {
+      setMoveInErr('ยังไม่สามารถเข้าพักได้: ต้องชำระ invoice แรกเข้าให้ครบและบัญชีอนุมัติก่อน')
+      return
+    }
+
     setMovingIn(true); setMoveInErr('')
 
     let checklistUrl = null
@@ -379,8 +408,15 @@ export default function ContractDetailPage() {
 
   const initialInvPaid    = !initialInvoice || initialInvoice.status === 'paid'
   const prorateInvPaid    = !prorateInvoice  || prorateInvoice.status  === 'paid'
-  const blockMoveIn       = (initialInvoice && initialInvoice.status !== 'paid') ||
-                            (prorateInvoice  && prorateInvoice.status  !== 'paid')
+  const blockMoveIn       = !initialInvPaid || !prorateInvPaid
+  const moveInBlockInvoices = [
+    initialInvoice && initialInvoice.status !== 'paid'
+      ? { ...initialInvoice, label: 'ประกัน+ล่วงหน้า' }
+      : null,
+    prorateInvoice && prorateInvoice.status !== 'paid'
+      ? { ...prorateInvoice, label: 'ค่าเช่า prorated' }
+      : null,
+  ].filter(Boolean)
 
   const INVOICE_TYPE_LABEL = {
     contract_initial: 'ประกัน+ล่วงหน้า',
@@ -433,13 +469,31 @@ export default function ContractDetailPage() {
                 บันทึกเข้าพัก
               </Button>
               {blockMoveIn && (
-                <p className="text-sm text-red-600">
-                  รอชำระ:
-                  {initialInvoice && initialInvoice.status !== 'paid' &&
-                    ` ${initialInvoice.invoice_number} ประกัน+ล่วงหน้า ฿${Number(initialInvoice.total_amount).toLocaleString('th-TH')}`}
-                  {prorateInvoice && prorateInvoice.status !== 'paid' &&
-                    ` · ${prorateInvoice.invoice_number} ค่าเช่า prorated ฿${Number(prorateInvoice.total_amount).toLocaleString('th-TH')}`}
-                </p>
+                <div className="flex flex-wrap items-center gap-2 text-sm text-red-600">
+                  <span>รอชำระ:</span>
+                  {moveInBlockInvoices.map(inv => (
+                    <Button
+                      key={inv.id}
+                      size="sm"
+                      variant="secondary"
+                      icon={<CreditCard className="h-3.5 w-3.5" />}
+                      className="border-red-200 text-red-700 hover:bg-red-50"
+                      onClick={() => navigate(`/invoices/${inv.id}`)}
+                    >
+                      {inv.invoice_number} {inv.label} ฿{Number(inv.total_amount).toLocaleString('th-TH')}
+                    </Button>
+                  ))}
+                  {isHeadStaff && (
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      icon={<XCircle className="h-3.5 w-3.5" />}
+                      onClick={() => { setCancelContractReason(''); setCancelContractErr(''); setCancelContractModal(true) }}
+                    >
+                      ยกเลิกสัญญานี้
+                    </Button>
+                  )}
+                </div>
               )}
             </>
           )}
@@ -532,6 +586,41 @@ export default function ContractDetailPage() {
       {/* Tab: Info */}
       {tab === 'info' && (
         <div className="grid gap-4 lg:grid-cols-2 max-w-4xl">
+          {blockMoveIn && moveInBlockInvoices.length > 0 && (
+            <Card className="lg:col-span-2 border-red-100 bg-red-50">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold text-red-800">ยังเข้าพักไม่ได้ เพราะ invoice แรกเข้ายังไม่ถูกอนุมัติชำระเงิน</p>
+                  <p className="mt-1 text-xs text-red-600">ใบเดิมถูกบัญชีปฏิเสธ/ยกเลิกแล้ว ต้องแก้สัญญาหรือยกเลิก flow นี้ ไม่ควรบันทึกชำระซ้ำบนใบเดิม</p>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {moveInBlockInvoices.map(inv => (
+                    <Button
+                      key={inv.id}
+                      size="sm"
+                      variant="secondary"
+                      icon={<CreditCard className="h-3.5 w-3.5" />}
+                      className="border-red-200 text-red-700 hover:bg-red-50"
+                      onClick={() => navigate(`/invoices/${inv.id}`)}
+                    >
+                      เปิด {inv.invoice_number}
+                    </Button>
+                  ))}
+                  {isHeadStaff && (
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      icon={<XCircle className="h-3.5 w-3.5" />}
+                      onClick={() => { setCancelContractReason(''); setCancelContractErr(''); setCancelContractModal(true) }}
+                    >
+                      ยกเลิกสัญญานี้
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </Card>
+          )}
+
           {/* Room */}
           <Card>
             <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-400">ห้อง</p>
@@ -958,6 +1047,28 @@ export default function ContractDetailPage() {
           <Select label="Staff" options={staffList} placeholder="เลือก staff"
             value={newStaffId} onChange={e => { setNewStaffId(e.target.value); setReassignErr('') }} />
           {reassignErr && <p className="text-sm text-red-600">{reassignErr}</p>}
+        </div>
+      </Modal>
+
+      {/* Cancel Contract Modal */}
+      <Modal
+        open={cancelContractModal}
+        onClose={() => setCancelContractModal(false)}
+        title="ยกเลิกสัญญานี้"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setCancelContractModal(false)}>ปิด</Button>
+            <Button variant="danger" loading={cancelContracting} onClick={handleCancelContract}>ยืนยันยกเลิก</Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          <p className="text-sm text-gray-600">
+            ใช้เมื่อ invoice แรกเข้าถูกปฏิเสธ/ยกเลิกแล้ว flow ไปต่อไม่ได้ ระบบจะยกเลิกสัญญาและคืนห้องเป็นสถานะว่าง
+          </p>
+          <Textarea label="เหตุผล" required rows={3} value={cancelContractReason}
+            onChange={e => { setCancelContractReason(e.target.value); setCancelContractErr('') }} />
+          {cancelContractErr && <p className="text-sm text-red-600">{cancelContractErr}</p>}
         </div>
       </Modal>
 

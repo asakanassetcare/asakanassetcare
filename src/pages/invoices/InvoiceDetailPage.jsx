@@ -135,10 +135,10 @@ export default function InvoiceDetailPage() {
       slipUrl = storageData.path
     }
 
-    const existingPending = payments.find(p => p.status === 'pending_approve')
+    const existingReviewable = payments.find(p => p.status === 'pending_approve')
     let error
-    if (existingPending) {
-      // Update the auto-created record — keep original amount (actual advance transferred)
+    if (existingReviewable) {
+      // Update the existing review row.
       ;({ error } = await supabase.from('payments').update({
         paid_date:      payForm.paid_date,
         bank_name:      payForm.bank_name || null,
@@ -146,7 +146,7 @@ export default function InvoiceDetailPage() {
         slip_url:       slipUrl,
         note:           payForm.note.trim() || null,
         recorded_by:    profile.id,
-      }).eq('id', existingPending.id))
+      }).eq('id', existingReviewable.id))
     } else {
       ;({ error } = await supabase.from('payments').insert({
         invoice_id:     invoiceId,
@@ -251,7 +251,8 @@ export default function InvoiceDetailPage() {
 
   if (loading) return <PageSpinner />
 
-  const canPay     = ['pending', 'overdue'].includes(invoice.status) && !payments.find(p => p.status === 'pending_approve') && ['super_admin', 'head_staff', 'staff'].includes(role)
+  const hasPendingPayment = payments.some(p => p.status === 'pending_approve')
+  const canPay     = ['pending', 'overdue'].includes(invoice.status) && !hasPendingPayment && ['super_admin', 'head_staff', 'staff'].includes(role)
   const canCancel  = ['pending', 'overdue', 'paid_pending_approve'].includes(invoice.status) && ['super_admin', 'accounting'].includes(role)
   const canApprove = ['super_admin', 'accounting'].includes(role)
 
