@@ -7,6 +7,7 @@ import Button from '../../components/ui/Button'
 import Card from '../../components/ui/Card'
 import Badge from '../../components/ui/Badge'
 import Modal from '../../components/ui/Modal'
+import Input from '../../components/ui/Input'
 import Select from '../../components/ui/Select'
 import Textarea from '../../components/ui/Textarea'
 import DocumentUpload from '../../components/shared/DocumentUpload'
@@ -71,6 +72,20 @@ export default function ContractDetailPage() {
   const [cancelContracting,    setCancelContracting]    = useState(false)
   const [cancelContractErr,    setCancelContractErr]    = useState('')
 
+  // Regenerate move-in invoices
+  const [regenModal,  setRegenModal]  = useState(false)
+  const [regenForm,   setRegenForm]   = useState({
+    contract_start_date: '',
+    move_in_date: '',
+    monthly_rent: '',
+    deposit_amount: '',
+    advance_rent_amount: '',
+    booking_deposit_applied: '',
+    note: '',
+  })
+  const [regenerating, setRegenerating] = useState(false)
+  const [regenErr,     setRegenErr]     = useState('')
+
   // Move-in
   const [moveInModal,           setMoveInModal]           = useState(false)
   const [checklistInFile,       setChecklistInFile]       = useState(null)
@@ -94,6 +109,7 @@ export default function ContractDetailPage() {
 
   // Advance payment (contract signing, before approval)
   const [advancePayments,  setAdvancePayments]  = useState([])
+  const [moveInPendingPayments, setMoveInPendingPayments] = useState([])
   const [advanceModal,     setAdvanceModal]     = useState(false)
   const [advanceAmount,    setAdvanceAmount]    = useState('')
   const [advanceSlipFile,  setAdvanceSlipFile]  = useState(null)
@@ -118,7 +134,7 @@ export default function ContractDetailPage() {
   useEffect(() => { if (tab === 'receipts') fetchReceipts() }, [tab])
 
   async function fetchContract() {
-    const [{ data }, { data: initInv }, { data: prorateInv }] = await Promise.all([
+    const [{ data }, { data: initInvRows }, { data: prorateInvRows }] = await Promise.all([
       supabase.from('contracts').select(`
         *,
         rooms(id, room_number, floor, ownership, base_rent, base_deposit, base_advance, buildings(id, name, project_id, projects(name))),
@@ -129,19 +145,34 @@ export default function ContractDetailPage() {
         .select('id, invoice_number, status, total_amount, due_date')
         .eq('contract_id', contractId)
         .eq('invoice_type', 'contract_initial')
-        .maybeSingle(),
+        .order('created_at', { ascending: false })
+        .limit(5),
       supabase.from('invoices')
         .select('id, invoice_number, status, total_amount, due_date, billing_period')
         .eq('contract_id', contractId)
         .eq('invoice_type', 'monthly_rent')
-        .order('created_at')
-        .limit(1)
-        .maybeSingle(),
+        .order('created_at', { ascending: false })
+        .limit(5),
     ])
     if (!data) { navigate('/contracts'); return }
+    const pickActiveInvoice = rows => (rows ?? []).find(inv => !['cancelled', 'rejected'].includes(inv.status)) ?? null
+    const moveInInvoiceIds = [
+      ...(initInvRows ?? []),
+      ...(prorateInvRows ?? []),
+    ].map(inv => inv.id).filter(Boolean)
     setContract(data)
-    setInitialInvoice(initInv ?? null)
-    setProrateInvoice(prorateInv ?? null)
+    setInitialInvoice(pickActiveInvoice(initInvRows))
+    setProrateInvoice(pickActiveInvoice(prorateInvRows))
+    if (moveInInvoiceIds.length > 0) {
+      const { data: pendingMoveInPmts } = await supabase
+        .from('payments')
+        .select('id, invoice_id, invoices(invoice_number)')
+        .in('invoice_id', moveInInvoiceIds)
+        .eq('status', 'pending_approve')
+      setMoveInPendingPayments(pendingMoveInPmts ?? [])
+    } else {
+      setMoveInPendingPayments([])
+    }
 
     const tenantId = data.tenants?.id
     const [{ data: tenantDocs }, { data: contractDocs }] = await Promise.all([
@@ -253,17 +284,72 @@ export default function ContractDetailPage() {
       return
     }
     setCancelContracting(true)
-    const { error } = await supabase.from('contracts')
-      .update({ status: 'cancelled' })
-      .eq('id', contractId)
-    if (!error && c.rooms?.id) {
-      await supabase.from('rooms').update({ status: 'available' }).eq('id', c.rooms.id)
-    }
+    const { error } = await supabase.rpc('cancel_contract', {
+      p_contract_id: contractId,
+      p_reason: cancelContractReason.trim(),
+    })
     setCancelContracting(false)
     if (error) { setCancelContractErr(error.message); return }
     setCancelContractModal(false)
     setCancelContractReason('')
     fetchContract()
+  }
+
+  function openRegenerateModal() {
+    if (moveInPendingPayments.length > 0) {
+      setMoveInErr('ยังแก้ไขและส่งใหม่ไม่ได้ เพราะมีรายการชำระเงินรอบัญชีอนุมัติ ต้องให้บัญชีอนุมัติหรือปฏิเสธก่อน')
+      return
+    }
+    setRegenForm({
+      contract_start_date: c.contract_start_date ?? '',
+      move_in_date: c.move_in_date ?? '',
+      monthly_rent: String(c.monthly_rent ?? ''),
+      deposit_amount: String(c.deposit_amount ?? ''),
+      advance_rent_amount: String(c.advance_rent_amount ?? ''),
+      booking_deposit_applied: String(c.booking_deposit_applied ?? 0),
+      note: '',
+    })
+    setRegenErr('')
+    setRegenModal(true)
+  }
+
+  async function handleRegenerateInvoices() {
+    const monthlyRent = Number(regenForm.monthly_rent)
+    const deposit = Number(regenForm.deposit_amount)
+    const advance = Number(regenForm.advance_rent_amount)
+    const bookingApplied = Number(regenForm.booking_deposit_applied || 0)
+    if (!regenForm.contract_start_date) { setRegenErr('กรุณากรอกวันเริ่มสัญญา'); return }
+    if (!regenForm.move_in_date) { setRegenErr('กรุณากรอกวันกำหนดเข้าพัก'); return }
+    if (!monthlyRent || monthlyRent <= 0) { setRegenErr('กรุณากรอกค่าเช่า'); return }
+    if (deposit < 0 || advance < 0 || bookingApplied < 0) { setRegenErr('ยอดเงินต้องไม่ติดลบ'); return }
+    if (moveInPendingPayments.length > 0) {
+      setRegenErr('ยังมีรายการชำระเงินรอบัญชีอนุมัติ ต้องให้บัญชีอนุมัติหรือปฏิเสธก่อน แล้วค่อยแก้ไขและส่งใหม่')
+      return
+    }
+
+    setRegenerating(true)
+    setRegenErr('')
+    try {
+      const { error } = await supabase.rpc('regenerate_move_in_invoices', {
+        p_contract_id: contractId,
+        p_contract_start_date: regenForm.contract_start_date,
+        p_move_in_date: regenForm.move_in_date,
+        p_monthly_rent: monthlyRent,
+        p_deposit_amount: deposit,
+        p_advance_rent_amount: advance,
+        p_booking_deposit_applied: bookingApplied,
+        p_note: regenForm.note.trim() || null,
+      })
+      if (error) throw error
+
+      setRegenerating(false)
+      setRegenModal(false)
+      fetchContract()
+      if (tab === 'invoices') fetchInvoices()
+    } catch (err) {
+      setRegenerating(false)
+      setRegenErr(err.message ?? 'แก้ไขและส่งใหม่ไม่สำเร็จ')
+    }
   }
 
   async function handleMoveIn() {
@@ -406,15 +492,42 @@ export default function ContractDetailPage() {
   const isHeadStaff    = role === 'head_staff' || role === 'super_admin'
   const isOperational  = ['super_admin', 'head_staff', 'staff'].includes(role)
 
-  const initialInvPaid    = !initialInvoice || initialInvoice.status === 'paid'
-  const prorateInvPaid    = !prorateInvoice  || prorateInvoice.status  === 'paid'
+  const initialExpectedAmount = Math.max(
+    0,
+    Number(c.deposit_amount ?? 0)
+      + Number(c.advance_rent_amount ?? 0)
+      - Number(c.booking_deposit_applied ?? 0)
+  )
+  const prorateExpectedAmount = calcProrate(c.contract_start_date, c.monthly_rent)
+  const initialInvPaid    = initialExpectedAmount <= 0
+    ? (!initialInvoice || initialInvoice.status === 'paid')
+    : initialInvoice?.status === 'paid'
+  const prorateInvPaid    = prorateExpectedAmount <= 0
+    ? (!prorateInvoice || prorateInvoice.status === 'paid')
+    : prorateInvoice?.status === 'paid'
   const blockMoveIn       = !initialInvPaid || !prorateInvPaid
+  const hasPendingMoveInPayment = moveInPendingPayments.length > 0
+  const canResolveMoveInBlock = c.status === 'approved' && isOperational && blockMoveIn
   const moveInBlockInvoices = [
-    initialInvoice && initialInvoice.status !== 'paid'
-      ? { ...initialInvoice, label: 'ประกัน+ล่วงหน้า' }
+    !initialInvPaid
+      ? {
+          ...(initialInvoice ?? {}),
+          id: initialInvoice?.id ?? 'missing-initial',
+          missing: !initialInvoice,
+          invoice_number: initialInvoice?.invoice_number ?? 'ยังไม่มีใบแจ้งหนี้',
+          total_amount: initialInvoice?.total_amount ?? initialExpectedAmount,
+          label: 'ประกัน+ล่วงหน้า',
+        }
       : null,
-    prorateInvoice && prorateInvoice.status !== 'paid'
-      ? { ...prorateInvoice, label: 'ค่าเช่า prorated' }
+    !prorateInvPaid
+      ? {
+          ...(prorateInvoice ?? {}),
+          id: prorateInvoice?.id ?? 'missing-prorate',
+          missing: !prorateInvoice,
+          invoice_number: prorateInvoice?.invoice_number ?? 'ยังไม่มีใบแจ้งหนี้',
+          total_amount: prorateInvoice?.total_amount ?? prorateExpectedAmount,
+          label: 'ค่าเช่า prorated',
+        }
       : null,
   ].filter(Boolean)
 
@@ -472,26 +585,48 @@ export default function ContractDetailPage() {
                 <div className="flex flex-wrap items-center gap-2 text-sm text-red-600">
                   <span>รอชำระ:</span>
                   {moveInBlockInvoices.map(inv => (
-                    <Button
-                      key={inv.id}
-                      size="sm"
-                      variant="secondary"
-                      icon={<CreditCard className="h-3.5 w-3.5" />}
-                      className="border-red-200 text-red-700 hover:bg-red-50"
-                      onClick={() => navigate(`/invoices/${inv.id}`)}
-                    >
-                      {inv.invoice_number} {inv.label} ฿{Number(inv.total_amount).toLocaleString('th-TH')}
-                    </Button>
+                    inv.missing ? (
+                      <span key={inv.id} className="rounded-md border border-red-200 bg-red-50 px-2 py-1 text-xs text-red-700">
+                        {inv.invoice_number} {inv.label} ฿{Number(inv.total_amount).toLocaleString('th-TH')}
+                      </span>
+                    ) : (
+                      <Button
+                        key={inv.id}
+                        size="sm"
+                        variant="secondary"
+                        icon={<CreditCard className="h-3.5 w-3.5" />}
+                        className="border-red-200 text-red-700 hover:bg-red-50"
+                        onClick={() => navigate(`/invoices/${inv.id}`)}
+                      >
+                        {inv.invoice_number} {inv.label} ฿{Number(inv.total_amount).toLocaleString('th-TH')}
+                      </Button>
+                    )
                   ))}
                   {isHeadStaff && (
-                    <Button
-                      size="sm"
-                      variant="danger"
-                      icon={<XCircle className="h-3.5 w-3.5" />}
-                      onClick={() => { setCancelContractReason(''); setCancelContractErr(''); setCancelContractModal(true) }}
-                    >
-                      ยกเลิกสัญญานี้
-                    </Button>
+                    <>
+                      {hasPendingMoveInPayment ? (
+                        <span className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-xs text-amber-700">
+                          มีรายการชำระรอบัญชีอยู่
+                        </span>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          icon={<CheckCircle className="h-3.5 w-3.5" />}
+                          onClick={openRegenerateModal}
+                        >
+                          แก้ไขและส่งใหม่
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        icon={<XCircle className="h-3.5 w-3.5" />}
+                        onClick={() => { setCancelContractReason(''); setCancelContractErr(''); setCancelContractModal(true) }}
+                      >
+                        ยกเลิกสัญญานี้
+                      </Button>
+                    </>
                   )}
                 </div>
               )}
@@ -586,7 +721,7 @@ export default function ContractDetailPage() {
       {/* Tab: Info */}
       {tab === 'info' && (
         <div className="grid gap-4 lg:grid-cols-2 max-w-4xl">
-          {blockMoveIn && moveInBlockInvoices.length > 0 && (
+          {canResolveMoveInBlock && moveInBlockInvoices.length > 0 && (
             <Card className="lg:col-span-2 border-red-100 bg-red-50">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
@@ -595,26 +730,48 @@ export default function ContractDetailPage() {
                 </div>
                 <div className="flex flex-wrap gap-2">
                   {moveInBlockInvoices.map(inv => (
-                    <Button
-                      key={inv.id}
-                      size="sm"
-                      variant="secondary"
-                      icon={<CreditCard className="h-3.5 w-3.5" />}
-                      className="border-red-200 text-red-700 hover:bg-red-50"
-                      onClick={() => navigate(`/invoices/${inv.id}`)}
-                    >
-                      เปิด {inv.invoice_number}
-                    </Button>
+                    inv.missing ? (
+                      <span key={inv.id} className="rounded-md border border-red-200 bg-white px-2 py-1 text-xs text-red-700">
+                        {inv.invoice_number} {inv.label}
+                      </span>
+                    ) : (
+                      <Button
+                        key={inv.id}
+                        size="sm"
+                        variant="secondary"
+                        icon={<CreditCard className="h-3.5 w-3.5" />}
+                        className="border-red-200 text-red-700 hover:bg-red-50"
+                        onClick={() => navigate(`/invoices/${inv.id}`)}
+                      >
+                        เปิด {inv.invoice_number}
+                      </Button>
+                    )
                   ))}
                   {isHeadStaff && (
-                    <Button
-                      size="sm"
-                      variant="danger"
-                      icon={<XCircle className="h-3.5 w-3.5" />}
-                      onClick={() => { setCancelContractReason(''); setCancelContractErr(''); setCancelContractModal(true) }}
-                    >
-                      ยกเลิกสัญญานี้
-                    </Button>
+                    <>
+                      {hasPendingMoveInPayment ? (
+                        <span className="rounded-md border border-amber-200 bg-white px-2 py-1 text-xs text-amber-700">
+                          มีรายการชำระรอบัญชีอยู่
+                        </span>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          icon={<CheckCircle className="h-3.5 w-3.5" />}
+                          onClick={openRegenerateModal}
+                        >
+                          แก้ไขและส่งใหม่
+                        </Button>
+                      )}
+                      <Button
+                        size="sm"
+                        variant="danger"
+                        icon={<XCircle className="h-3.5 w-3.5" />}
+                        onClick={() => { setCancelContractReason(''); setCancelContractErr(''); setCancelContractModal(true) }}
+                      >
+                        ยกเลิกสัญญานี้
+                      </Button>
+                    </>
                   )}
                 </div>
               </div>
@@ -1047,6 +1204,85 @@ export default function ContractDetailPage() {
           <Select label="Staff" options={staffList} placeholder="เลือก staff"
             value={newStaffId} onChange={e => { setNewStaffId(e.target.value); setReassignErr('') }} />
           {reassignErr && <p className="text-sm text-red-600">{reassignErr}</p>}
+        </div>
+      </Modal>
+
+      {/* Regenerate Move-in Invoices Modal */}
+      <Modal
+        open={regenModal}
+        onClose={() => setRegenModal(false)}
+        title="แก้ไขและส่งใหม่"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setRegenModal(false)}>ปิด</Button>
+            <Button loading={regenerating} onClick={handleRegenerateInvoices}>ยืนยันส่งใหม่</Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+            ระบบจะแก้ข้อมูลสัญญา ยกเลิก/แทนที่ invoice แรกเข้าที่ยังไม่ผ่านอนุมัติ แล้วส่งกลับเป็นรอชำระใหม่
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Input
+              label="วันเริ่มสัญญา"
+              type="date"
+              required
+              value={regenForm.contract_start_date}
+              onChange={e => setRegenForm(p => ({ ...p, contract_start_date: e.target.value }))}
+            />
+            <Input
+              label="กำหนดเข้าพัก"
+              type="date"
+              required
+              value={regenForm.move_in_date}
+              onChange={e => setRegenForm(p => ({ ...p, move_in_date: e.target.value }))}
+            />
+            <Input
+              label="ค่าเช่า/เดือน"
+              type="number"
+              min={0}
+              required
+              value={regenForm.monthly_rent}
+              onChange={e => setRegenForm(p => ({ ...p, monthly_rent: e.target.value }))}
+            />
+            <Input
+              label="เงินประกัน"
+              type="number"
+              min={0}
+              required
+              value={regenForm.deposit_amount}
+              onChange={e => setRegenForm(p => ({ ...p, deposit_amount: e.target.value }))}
+            />
+            <Input
+              label="ค่าเช่าล่วงหน้า"
+              type="number"
+              min={0}
+              required
+              value={regenForm.advance_rent_amount}
+              onChange={e => setRegenForm(p => ({ ...p, advance_rent_amount: e.target.value }))}
+            />
+            <Input
+              label="หักเงินจอง"
+              type="number"
+              min={0}
+              value={regenForm.booking_deposit_applied}
+              onChange={e => setRegenForm(p => ({ ...p, booking_deposit_applied: e.target.value }))}
+            />
+          </div>
+          <Textarea
+            label="หมายเหตุการแก้ไข"
+            rows={2}
+            value={regenForm.note}
+            onChange={e => setRegenForm(p => ({ ...p, note: e.target.value }))}
+            placeholder="เช่น แก้ยอดหักเงินจอง / แก้วันเริ่มสัญญา"
+          />
+          {advancePayments.length > 0 && (
+            <p className="text-xs text-gray-500">
+              ระบบจะหักค่าทำสัญญาล่วงหน้าที่บันทึกไว้แล้ว ฿{advancePayments.reduce((s, p) => s + Number(p.amount), 0).toLocaleString('th-TH')} ตามลำดับเดิม
+            </p>
+          )}
+          {regenErr && <p className="text-sm text-red-600">{regenErr}</p>}
         </div>
       </Modal>
 

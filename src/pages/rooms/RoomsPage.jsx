@@ -159,8 +159,10 @@ export default function RoomsPage() {
 
     const merged = roomList.map(r => {
       const booking = bookingByRoom[r.id] ?? null
-      // If DB says available but there's a waiting booking, show reserved
-      const derivedStatus = (booking && r.status === 'available') ? 'reserved' : r.status
+      // If there is no active booking/contract, do not let a stale reserved room stay stuck.
+      const derivedStatus = booking
+        ? (r.status === 'available' ? 'reserved' : r.status)
+        : (r.status === 'reserved' && !contractTenantMap[r.id] ? 'available' : r.status)
       return {
         ...r,
         status:        derivedStatus,

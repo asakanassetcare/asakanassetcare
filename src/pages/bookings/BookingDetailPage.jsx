@@ -170,8 +170,44 @@ export default function BookingDetailPage() {
       deposit_action: depositAction,
       cancel_reason:  cancelReason.trim(),
     }).eq('id', bookingId)
+    let roomError = null
+    if (!error) {
+      const [{ data: activeContract }, { data: waitingBooking }] = await Promise.all([
+        supabase.from('contracts')
+          .select('id, status')
+          .eq('room_id', booking.room_id)
+          .in('status', ['pending_approve', 'approved', 'active'])
+          .order('created_at', { ascending: false })
+          .limit(1)
+          .maybeSingle(),
+        supabase.from('bookings')
+          .select('id')
+          .eq('room_id', booking.room_id)
+          .eq('status', 'waiting')
+          .neq('id', bookingId)
+          .limit(1)
+          .maybeSingle(),
+      ])
+      if (waitingBooking) {
+        const { error: updateErr } = await supabase
+          .from('rooms')
+          .update({ status: 'reserved' })
+          .eq('id', booking.room_id)
+          .eq('status', 'available')
+        roomError = updateErr
+      } else {
+        const nextRoomStatus = activeContract?.status === 'active'
+          ? 'occupied'
+          : activeContract
+            ? 'reserved'
+            : 'available'
+        const { error: updateErr } = await supabase.from('rooms').update({ status: nextRoomStatus }).eq('id', booking.room_id)
+        roomError = updateErr
+      }
+    }
     setCancelling(false)
     if (error) { setCancelError(error.message); return }
+    if (roomError) { setCancelError(roomError.message); return }
     setCancelModal(false)
     fetchBooking()
   }

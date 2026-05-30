@@ -152,6 +152,10 @@ export default function ContractFormModal({ open, onClose, onSaved, prefillRoom,
 
   async function handleSave(e) {
     e.preventDefault()
+    if (prefillBooking && prefillBooking.status !== 'waiting') {
+      setError('การจองนี้ถูกยกเลิกหรือแปลงสัญญาไปแล้ว ไม่สามารถใช้สร้างสัญญาใหม่ได้')
+      return
+    }
     if (!form.room_id)               { setError('กรุณาเลือกห้อง'); return }
     if (!form.tenant_id)             { setError('กรุณาเลือกผู้เช่า'); return }
     if (!form.contract_start_date)   { setError('กรุณากรอกวันเริ่มสัญญา'); return }
@@ -182,6 +186,20 @@ export default function ContractFormModal({ open, onClose, onSaved, prefillRoom,
     setError('')
     setSaving(true)
 
+    if (prefillBooking?.id) {
+      const { data: freshBooking, error: bookingStatusErr } = await supabase
+        .from('bookings')
+        .select('id, status')
+        .eq('id', prefillBooking.id)
+        .maybeSingle()
+      if (bookingStatusErr) { setSaving(false); setError(bookingStatusErr.message); return }
+      if (freshBooking?.status !== 'waiting') {
+        setSaving(false)
+        setError('การจองนี้ถูกยกเลิกหรือแปลงสัญญาไปแล้ว ไม่สามารถใช้สร้างสัญญาใหม่ได้')
+        return
+      }
+    }
+
     const blockReason = await getContractBlockReason(form.room_id)
     if (blockReason) { setSaving(false); setError(blockReason); return }
 
@@ -206,20 +224,34 @@ export default function ContractFormModal({ open, onClose, onSaved, prefillRoom,
       status:                   'pending_approve',
     }
 
-    const { data, error } = await supabase.from('contracts').insert(payload).select('id').single()
-    if (error) { setSaving(false); setError(error.message); return }
-
-    // Mark booking as converted
+    let savedContractId = null
     if (prefillBooking?.id) {
-      await supabase.from('bookings').update({
-        status:                    'converted',
-        converted_to_contract_id:  data.id,
-        converted_at:              new Date().toISOString(),
-      }).eq('id', prefillBooking.id)
+      const { data, error } = await supabase.rpc('create_contract_from_booking', {
+        p_booking_id: prefillBooking.id,
+        p_contract_start_date: form.contract_start_date,
+        p_contract_end_date: form.contract_end_date,
+        p_move_in_date: form.move_in_date,
+        p_monthly_rent: Number(form.monthly_rent),
+        p_deposit_amount: Number(form.deposit_amount) || 0,
+        p_advance_rent_amount: Number(form.advance_rent_amount) || 0,
+        p_payment_day: Number(form.payment_day) || 1,
+        p_booking_deposit_applied: Number(form.booking_deposit_applied) || 0,
+        p_electric_meter_start: form.electric_meter_start ? Number(form.electric_meter_start) : null,
+        p_water_meter_start: form.water_meter_start ? Number(form.water_meter_start) : null,
+        p_assigned_staff_id: form.assigned_staff_id,
+        p_management_fee_amount: selectedRoom?.ownership === 'managed' ? Number(form.management_fee_amount) || 0 : 0,
+        p_note: form.note.trim() || null,
+      })
+      if (error) { setSaving(false); setError(error.message); return }
+      savedContractId = data
+    } else {
+      const { data, error } = await supabase.from('contracts').insert(payload).select('id').single()
+      if (error) { setSaving(false); setError(error.message); return }
+      savedContractId = data.id
     }
 
     setSaving(false)
-    onSaved?.(data.id)
+    onSaved?.(savedContractId)
   }
 
   const lockRoom = !!(prefillRoom?.id || prefillBooking?.room_id)

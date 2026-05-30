@@ -173,6 +173,10 @@ export default function InvoiceDetailPage() {
   }
 
   async function handleApprovePayment(pmt) {
+    if (invoice.status !== 'paid_pending_approve') {
+      alert('อนุมัติไม่ได้ เพราะใบแจ้งหนี้ไม่ได้อยู่สถานะรอยืนยันชำระ')
+      return
+    }
     setApprovingId(pmt.id)
     const { error } = await supabase.from('payments').update({
       status:      'approved',
@@ -221,6 +225,19 @@ export default function InvoiceDetailPage() {
   async function handleCancel() {
     if (!cancelReason.trim()) { setCancelError('กรุณากรอกเหตุผล'); return }
     setCancelling(true)
+    const pendingPaymentIds = payments.filter(p => p.status === 'pending_approve').map(p => p.id)
+    if (pendingPaymentIds.length > 0) {
+      const { error: paymentErr } = await supabase.from('payments').update({
+        status: 'rejected',
+        rejected_at: new Date().toISOString(),
+        rejection_reason: cancelReason.trim(),
+      }).in('id', pendingPaymentIds)
+      if (paymentErr) {
+        setCancelling(false)
+        setCancelError(paymentErr.message)
+        return
+      }
+    }
     const { error } = await supabase.from('invoices').update({
       status: 'cancelled',
       cancelled_at: new Date().toISOString(),
@@ -255,6 +272,10 @@ export default function InvoiceDetailPage() {
   const canPay     = ['pending', 'overdue'].includes(invoice.status) && !hasPendingPayment && ['super_admin', 'head_staff', 'staff'].includes(role)
   const canCancel  = ['pending', 'overdue', 'paid_pending_approve'].includes(invoice.status) && ['super_admin', 'accounting'].includes(role)
   const canApprove = ['super_admin', 'accounting'].includes(role)
+  const canReviewPayment = canApprove && invoice.status === 'paid_pending_approve'
+  const approvedPayment = payments
+    .filter(p => p.status === 'approved')
+    .sort((a, b) => new Date(b.approved_at ?? b.created_at ?? 0) - new Date(a.approved_at ?? a.created_at ?? 0))[0]
 
   // คำนวณค่าปรับ (เฉพาะ monthly_rent ที่เลย due_date แล้ว)
   function calcPenalty() {
@@ -308,9 +329,9 @@ export default function InvoiceDetailPage() {
             filename={`${invoice.invoice_number}.pdf`}
             label="PDF ใบแจ้งหนี้"
           />
-          {invoice.status === 'paid' && payments.length > 0 && (
+          {invoice.status === 'paid' && approvedPayment && (
             <PdfDownloadButton
-              document={<ReceiptPDF payment={payments[0]} invoice={invoice} company={settings?.company ?? {}} />}
+              document={<ReceiptPDF payment={approvedPayment} invoice={invoice} company={settings?.company ?? {}} />}
               filename={`receipt_${invoice.invoice_number}.pdf`}
               label="PDF ใบเสร็จ"
             />
@@ -509,11 +530,13 @@ export default function InvoiceDetailPage() {
                     <Badge variant={pmt.status} />
                     {canApprove && pmt.status === 'pending_approve' && (
                       <>
-                        <Button size="sm" icon={<CheckCircle className="h-3.5 w-3.5" />}
-                          loading={approvingId === pmt.id}
-                          onClick={() => handleApprovePayment(pmt)}>
-                          อนุมัติ
-                        </Button>
+                        {canReviewPayment && (
+                          <Button size="sm" icon={<CheckCircle className="h-3.5 w-3.5" />}
+                            loading={approvingId === pmt.id}
+                            onClick={() => handleApprovePayment(pmt)}>
+                            อนุมัติ
+                          </Button>
+                        )}
                         <Button size="sm" variant="danger" icon={<XCircle className="h-3.5 w-3.5" />}
                           onClick={() => { setRejectTarget(pmt); setRejectReason(''); setRejectErr(''); setRejectModal(true) }}>
                           ปฏิเสธ

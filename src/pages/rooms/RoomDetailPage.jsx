@@ -148,6 +148,11 @@ export default function RoomDetailPage() {
       .eq('status', 'waiting')
       .maybeSingle()
     setBooking(bk ?? null)
+    if (bk && rm.status === 'available') {
+      setRoom(prev => prev ? { ...prev, status: 'reserved' } : prev)
+    } else if (!bk && rm.status === 'reserved' && !ct) {
+      setRoom(prev => prev ? { ...prev, status: 'available' } : prev)
+    }
 
     // Addons for current contract
     if (ct?.id) {
@@ -602,7 +607,7 @@ export default function RoomDetailPage() {
             <div className="flex flex-col gap-2">
 
               {/* Actions depend on room status */}
-              {room.status === 'available' && room.is_rentable !== false && (
+              {room.status === 'available' && room.is_rentable !== false && !booking && (
                 <>
                   <ActionBtn icon={<BookOpen className="h-4 w-4" />} label="สร้างการจอง"
                     onClick={() => setBookingOpen(true)} color="blue" />

@@ -117,7 +117,7 @@ export default function PaymentsPage() {
       supabase.from('payments').select(`
         id, amount, paid_date, bank_name, bank_reference, slip_url, status, created_at,
         accounting_recorded_at, accounting_recorded_by,
-        invoices(id, invoice_number, invoice_type, total_amount, due_date,
+        invoices(id, invoice_number, invoice_type, total_amount, due_date, status,
           rooms(room_number, building_id, buildings(id, name)),
           tenants(full_name, line_user_id)),
         recorder:profiles!recorded_by(full_name),
@@ -186,6 +186,11 @@ export default function PaymentsPage() {
   }
 
   async function handleApprove(pmt) {
+    if (pmt.invoices?.status !== 'paid_pending_approve') {
+      alert('อนุมัติไม่ได้ เพราะใบแจ้งหนี้ไม่ได้อยู่สถานะรอยืนยันชำระ')
+      fetchAll()
+      return
+    }
     setActionLoading(pmt.id)
     const { error } = await supabase.from('payments').update({
       status: 'approved',
@@ -238,7 +243,12 @@ export default function PaymentsPage() {
     if (!error && rejectTarget.invoices?.id) {
       const today = new Date().toISOString().slice(0, 10)
       const restoredStatus = rejectTarget.invoices.due_date < today ? 'overdue' : 'pending'
-      await supabase.from('invoices').update({ status: restoredStatus }).eq('id', rejectTarget.invoices.id)
+      const { error: invErr } = await supabase.from('invoices').update({ status: restoredStatus }).eq('id', rejectTarget.invoices.id)
+      if (invErr) {
+        setRejecting(false)
+        setRejectErr(invErr.message)
+        return
+      }
     }
     setRejecting(false)
     if (error) { setRejectErr(error.message); return }
@@ -635,11 +645,13 @@ export default function PaymentsPage() {
                       {item._type === 'payment' && <Badge variant={item.status} />}
                       {canApprove && item._type === 'payment' && item.status === 'pending_approve' && (
                         <>
-                          <Button size="sm" icon={<CheckCircle className="h-3.5 w-3.5" />}
-                            loading={actionLoading === item.id}
-                            onClick={e => { e.stopPropagation(); handleApprove(item) }}>
-                            อนุมัติ
-                          </Button>
+                          {item.invoices?.status === 'paid_pending_approve' && (
+                            <Button size="sm" icon={<CheckCircle className="h-3.5 w-3.5" />}
+                              loading={actionLoading === item.id}
+                              onClick={e => { e.stopPropagation(); handleApprove(item) }}>
+                              อนุมัติ
+                            </Button>
+                          )}
                           <Button size="sm" variant="danger" icon={<XCircle className="h-3.5 w-3.5" />}
                             onClick={e => { e.stopPropagation(); openReject(item) }}>
                             ปฏิเสธ
