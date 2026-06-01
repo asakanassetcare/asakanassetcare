@@ -159,7 +159,7 @@ export default function StaffDashboard() {
         <StatCard icon={BookOpen}      label="Booking รอแปลงสัญญา"   value={bookings.length}          color="amber"
           onClick={() => navigate('/bookings',  { state: { filterStatus: 'waiting' } })} />
         <StatCard icon={LogIn}         label="รอบันทึกเข้าพัก"       value={moveInReadyContracts.length} color="green"
-          onClick={() => navigate('/contracts', { state: { filterStatus: 'approved' } })} />
+          onClick={() => document.getElementById('section-move-in')?.scrollIntoView({ behavior: 'smooth', block: 'start' })} />
         <StatCard icon={FileText}      label="สัญญารออนุมัติ"        value={pendingContracts.length}  color="purple"
           onClick={() => navigate('/contracts', { state: { filterStatus: 'pending_approve' } })} />
         <StatCard icon={CalendarClock} label="สัญญาใกล้หมด (30 วัน)" value={expiringContracts.length} color="red"
@@ -251,7 +251,7 @@ export default function StaffDashboard() {
       )}
 
       {filteredMoveIns.length > 0 && (
-        <Section title="รอบันทึกเข้าพัก" count={filteredMoveIns.length} accent="border-green-400">
+        <Section id="section-move-in" title="รอบันทึกเข้าพัก" count={filteredMoveIns.length} accent="border-green-400">
           {filteredMoveIns.map(c => (
             <ItemRow
               key={c.id}
@@ -337,9 +337,9 @@ function StatCard({ icon: Icon, label, value, color, onClick }) {
   )
 }
 
-function Section({ title, count, accent, children }) {
+function Section({ id, title, count, accent, children }) {
   return (
-    <div className="mb-6">
+    <div id={id} className="mb-6">
       <div className={`mb-3 flex items-center gap-2 border-l-4 pl-3 ${accent}`}>
         <h2 className="text-sm font-semibold text-gray-700">{title}</h2>
         <span className="text-xs text-gray-400">{count} รายการ</span>

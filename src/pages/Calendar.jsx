@@ -56,7 +56,8 @@ export default function CalendarPage() {
 
     const evts = []
     const activeInvs = (invs ?? []).filter(inv =>
-      !inv.contracts || ACTIVE_STATUSES.includes(inv.contracts.status)
+      !['cancelled', 'rejected'].includes(inv.status) &&
+      (!inv.contracts || ACTIVE_STATUSES.includes(inv.contracts.status))
     )
 
     for (const inv of activeInvs) {
@@ -65,7 +66,7 @@ export default function CalendarPage() {
       const isPaid = inv.status === 'paid'
       evts.push({
         date: d, type: isPaid ? 'invoice_due_paid' : 'invoice_due_unpaid',
-        label: `${inv.rooms?.buildings?.name} ห้อง ${inv.rooms?.room_number} ครบกำหนดชำระ`,
+        label: `${inv.rooms?.buildings?.name} ห้อง ${inv.rooms?.room_number} ${isPaid ? 'ชำระแล้ว' : 'ครบกำหนดชำระ'}`,
         onClick: () => navigate(`/invoices/${inv.id}`),
       })
     }

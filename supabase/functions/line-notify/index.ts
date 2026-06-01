@@ -67,6 +67,13 @@ function penaltyDetails(dueDate: string, _billingPeriod: string | null, ratePerD
   return { days, startStr, endStr: today, amount: days * ratePerDay }
 }
 
+function overdueDays(dueDate: string, today: string) {
+  if (today <= dueDate) return 0
+  const dueD = new Date(dueDate + 'T00:00:00Z')
+  const todayD = new Date(today + 'T00:00:00Z')
+  return Math.floor((todayD.getTime() - dueD.getTime()) / 86400000)
+}
+
 function penaltyLabel(inv: any): string {
   if (inv.billing_period) {
     const [, m] = inv.billing_period.split('-')
@@ -92,6 +99,15 @@ function buildSummaryFlex(tenantName: string, invoices: any[], bank: any, ratePe
   const earliestDue = invoices.reduce((min, i) => i.due_date < min ? i.due_date : min, invoices[0].due_date)
   const dueDate1 = thaiDate(earliestDue)
   const dueDate5 = thaiDate(addDays(earliestDue, 4))
+  const dueNoticeRows = today <= earliestDue
+    ? [
+        { type: 'text', text: `ครบกำหนดวันที่ ${dueDate1}`, size: 'sm', color: '#374151', margin: 'lg' },
+        { type: 'text', text: `ชำระได้ไม่เกิน ${dueDate5}`, size: 'sm', color: '#DC2626', weight: 'bold', margin: 'xs' },
+      ]
+    : [
+        { type: 'text', text: `ครบกำหนดวันที่ ${dueDate1}`, size: 'sm', color: '#374151', margin: 'lg' },
+        { type: 'text', text: `เกินกำหนดชำระแล้ว ${overdueDays(earliestDue, today)} วัน`, size: 'sm', color: '#DC2626', weight: 'bold', margin: 'xs' },
+      ]
 
   // rows ต่อ invoice + ค่าปรับ (ถ้ามี)
   const invoiceRows = penalties.flatMap(({ inv, p }) => {
@@ -134,8 +150,7 @@ function buildSummaryFlex(tenantName: string, invoices: any[], bank: any, ratePe
       ],
     },
     { type: 'separator', margin: 'lg' },
-    { type: 'text', text: `ครบกำหนดวันที่ ${dueDate1}`, size: 'sm', color: '#374151', margin: 'lg' },
-    { type: 'text', text: `ชำระได้ไม่เกิน ${dueDate5}`, size: 'sm', color: '#DC2626', weight: 'bold', margin: 'xs' },
+    ...dueNoticeRows,
   ]
 
   if (totalPenalty > 0) {
@@ -398,7 +413,12 @@ Deno.serve(async (req) => {
       const grandTotal   = subtotal + totalPenalty
       const grandFmt     = grandTotal.toLocaleString('th-TH')
       const penaltyLine  = totalPenalty > 0 ? `\n⚠️ รวมค่าปรับล่าช้า ฿${totalPenalty.toLocaleString('th-TH')}` : ''
-      const text = `⏰ แจ้งเตือน: วันนี้เป็นวันสุดท้ายชำระค่าเช่า\n${roomName}\nยอดค้างรวม ฿${grandFmt}${penaltyLine}\nหากชำระแล้วกรุณาแจ้งเจ้าหน้าที่\n📞 080-000-0000`
+      const earliestDue = roomInvoices.reduce((min, i) => i.due_date < min ? i.due_date : min, roomInvoices[0].due_date)
+      const dueLine = today <= earliestDue
+        ? `ครบกำหนดวันที่ ${thaiDate(earliestDue)}\nชำระได้ไม่เกิน ${thaiDate(addDays(earliestDue, 4))}`
+        : `ครบกำหนดวันที่ ${thaiDate(earliestDue)}\nเกินกำหนดชำระแล้ว ${overdueDays(earliestDue, today)} วัน`
+      const title = today <= earliestDue ? '⏰ แจ้งเตือนค่าเช่า' : '⚠️ แจ้งเตือนค้างชำระ'
+      const text = `${title}\n${roomName}\n${dueLine}\nยอดค้างรวม ฿${grandFmt}${penaltyLine}\nหากชำระแล้วกรุณาแจ้งเจ้าหน้าที่\n📞 080-000-0000`
       await pushLine(userId, [{ type: 'text', text }], token)
       sent++
     }
