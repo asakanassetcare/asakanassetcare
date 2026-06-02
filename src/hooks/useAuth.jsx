@@ -29,11 +29,27 @@ export function AuthProvider({ children }) {
       .eq('id', userId)
       .single()
     setProfile(data)
+    if (data?.is_active === false) {
+      await supabase.auth.signOut()
+    }
   }
 
   async function signIn(email, password) {
-    const { error } = await supabase.auth.signInWithPassword({ email, password })
-    return { error }
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password })
+    if (error) return { error }
+
+    const { data: profileData, error: profileError } = await supabase
+      .from('profiles')
+      .select('is_active')
+      .eq('id', data.user.id)
+      .single()
+
+    if (profileError || profileData?.is_active === false) {
+      await supabase.auth.signOut()
+      return { error: { message: 'account_disabled' } }
+    }
+
+    return { error: null }
   }
 
   async function signOut() {
@@ -48,7 +64,7 @@ export function AuthProvider({ children }) {
   const value = {
     session,
     profile,
-    role: profile?.role ?? null,
+    role: profile?.is_active === false ? null : (profile?.role ?? null),
     loading: session === undefined || (session !== null && profile === undefined),
     signIn,
     signOut,

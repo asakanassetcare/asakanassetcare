@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { UserPlus, Pencil, Copy, Check } from 'lucide-react'
+import { UserPlus, Pencil, Copy, Check, Ban, RotateCcw } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
 import RequireRole from '../../components/auth/RequireRole'
@@ -9,6 +9,7 @@ import Badge from '../../components/ui/Badge'
 import Modal from '../../components/ui/Modal'
 import Input from '../../components/ui/Input'
 import Select from '../../components/ui/Select'
+import Textarea from '../../components/ui/Textarea'
 import { formatThaiDate } from '../../lib/date'
 
 const ROLE_OPTIONS = [
@@ -33,6 +34,14 @@ function RoleBadge({ role }) {
   return (
     <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${r.cls}`}>
       {r.label}
+    </span>
+  )
+}
+
+function StatusBadge({ active }) {
+  return (
+    <span className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-medium ${active ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+      {active ? 'ใช้งาน' : 'ปิดใช้งาน'}
     </span>
   )
 }
@@ -65,6 +74,10 @@ function UsersContent() {
   const [editForm, setEditForm] = useState({ full_name: '', phone: '', role: 'staff' })
   const [saving, setSaving] = useState(false)
   const [editError, setEditError] = useState('')
+  const [statusTarget, setStatusTarget] = useState(null)
+  const [statusReason, setStatusReason] = useState('')
+  const [statusSaving, setStatusSaving] = useState(false)
+  const [statusError, setStatusError] = useState('')
   const isSuperAdmin = role === 'super_admin'
   const roleOptions = isSuperAdmin
     ? ROLE_OPTIONS
@@ -73,7 +86,11 @@ function UsersContent() {
   useEffect(() => { fetchUsers() }, [])
 
   async function fetchUsers() {
-    const { data } = await supabase.from('profiles').select('*').order('created_at', { ascending: false })
+    const { data } = await supabase
+      .from('profiles')
+      .select('*')
+      .order('is_active', { ascending: false })
+      .order('created_at', { ascending: false })
     if (data) setUsers(data)
     setLoading(false)
   }
@@ -118,6 +135,38 @@ function UsersContent() {
   function canEditUser(user) {
     if (isSuperAdmin) return user.role !== 'super_admin'
     return ['head_staff', 'staff', 'service'].includes(user.role)
+  }
+
+  function canToggleUser(user) {
+    if (user.id === session.user.id) return false
+    return canEditUser(user)
+  }
+
+  function openStatusModal(user) {
+    if (!canToggleUser(user)) return
+    setStatusTarget(user)
+    setStatusReason('')
+    setStatusError('')
+  }
+
+  async function handleToggleStatus() {
+    if (!statusTarget) return
+    const nextActive = statusTarget.is_active === false
+    if (!nextActive && !statusReason.trim()) {
+      setStatusError('กรุณากรอกเหตุผลการปิดใช้งาน')
+      return
+    }
+
+    setStatusSaving(true)
+    const { error } = await supabase.rpc('set_user_active', {
+      p_user_id: statusTarget.id,
+      p_is_active: nextActive,
+      p_reason: nextActive ? null : statusReason.trim(),
+    })
+    setStatusSaving(false)
+    if (error) { setStatusError(error.message); return }
+    setStatusTarget(null)
+    fetchUsers()
   }
 
   async function handleEdit(e) {
@@ -171,6 +220,7 @@ function UsersContent() {
               <th className="px-4 py-3">เบอร์โทร</th>
               <th className="px-4 py-3">สิทธิ์</th>
               <th className="px-4 py-3">วันที่สร้าง</th>
+              <th className="px-4 py-3">สถานะ</th>
               <th className="px-4 py-3" />
             </tr>
           </thead>
@@ -178,7 +228,7 @@ function UsersContent() {
             {loading ? (
               Array.from({ length: 4 }).map((_, i) => (
                 <tr key={i} className="border-b border-gray-50">
-                  {Array.from({ length: 6 }).map((_, j) => (
+                  {Array.from({ length: 7 }).map((_, j) => (
                     <td key={j} className="px-4 py-3">
                       <div className="h-4 animate-pulse rounded bg-gray-100" />
                     </td>
@@ -186,7 +236,7 @@ function UsersContent() {
                 </tr>
               ))
             ) : users.length === 0 ? (
-              <tr><td colSpan={6} className="py-12 text-center text-sm text-gray-400">ยังไม่มีผู้ใช้งาน</td></tr>
+              <tr><td colSpan={7} className="py-12 text-center text-sm text-gray-400">ยังไม่มีผู้ใช้งาน</td></tr>
             ) : (
               users.map((u) => (
                 <tr key={u.id} className="border-b border-gray-50 hover:bg-gray-50 transition-colors">
@@ -195,6 +245,7 @@ function UsersContent() {
                   <td className="px-4 py-3 text-gray-500">{u.phone ?? '-'}</td>
                   <td className="px-4 py-3"><RoleBadge role={u.role} /></td>
                   <td className="px-4 py-3 text-gray-400">{formatThaiDate(u.created_at)}</td>
+                  <td className="px-4 py-3"><StatusBadge active={u.is_active !== false} /></td>
                   <td className="px-4 py-3">
                     {canEditUser(u) && (
                       <button
@@ -203,6 +254,15 @@ function UsersContent() {
                         title="แก้ไข"
                       >
                         <Pencil className="h-4 w-4" />
+                      </button>
+                    )}
+                    {canToggleUser(u) && (
+                      <button
+                        onClick={() => openStatusModal(u)}
+                        className={`ml-1 rounded-lg p-1.5 transition-colors ${u.is_active === false ? 'text-green-600 hover:bg-green-50' : 'text-red-500 hover:bg-red-50'}`}
+                        title={u.is_active === false ? 'เปิดใช้งาน' : 'ปิดใช้งาน'}
+                      >
+                        {u.is_active === false ? <RotateCcw className="h-4 w-4" /> : <Ban className="h-4 w-4" />}
                       </button>
                     )}
                   </td>
@@ -326,6 +386,45 @@ function UsersContent() {
             <div className="rounded-lg bg-red-50 px-3 py-2.5 text-sm text-red-600">{editError}</div>
           )}
         </form>
+      </Modal>
+
+      <Modal
+        open={!!statusTarget}
+        onClose={() => setStatusTarget(null)}
+        title={statusTarget?.is_active === false ? 'เปิดใช้งานผู้ใช้' : 'ปิดใช้งานผู้ใช้'}
+        size="sm"
+        footer={
+          <>
+            <Button variant="secondary" onClick={() => setStatusTarget(null)}>ยกเลิก</Button>
+            <Button
+              variant={statusTarget?.is_active === false ? 'default' : 'danger'}
+              loading={statusSaving}
+              onClick={handleToggleStatus}
+            >
+              {statusTarget?.is_active === false ? 'เปิดใช้งาน' : 'ปิดใช้งาน'}
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-4">
+          <div className="rounded-lg bg-gray-50 px-3 py-2.5 text-sm text-gray-700">
+            <p className="font-medium text-gray-900">{statusTarget?.full_name}</p>
+            <p className="text-xs text-gray-500">{statusTarget?.email}</p>
+          </div>
+          {statusTarget?.is_active !== false && (
+            <Textarea
+              label="เหตุผลการปิดใช้งาน"
+              rows={3}
+              required
+              value={statusReason}
+              onChange={(e) => { setStatusReason(e.target.value); setStatusError('') }}
+              placeholder="เช่น ลาออก / ย้ายหน้าที่ / ระงับชั่วคราว"
+            />
+          )}
+          {statusError && (
+            <div className="rounded-lg bg-red-50 px-3 py-2.5 text-sm text-red-600">{statusError}</div>
+          )}
+        </div>
       </Modal>
     </div>
   )

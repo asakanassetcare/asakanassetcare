@@ -24,6 +24,10 @@ export default function Login() {
     const { error } = await signIn(email, password)
     setLoading(false)
     if (error) {
+      if (error.message === 'account_disabled') {
+        setError('บัญชีนี้ถูกปิดใช้งาน กรุณาติดต่อผู้ดูแลระบบ')
+        return
+      }
       setError('อีเมลหรือรหัสผ่านไม่ถูกต้อง')
       return
     }
