@@ -25,7 +25,9 @@ export default function StaffDashboard() {
 
   async function fetchAll() {
     const in30  = new Date(Date.now() + 30 * 86400_000).toISOString().slice(0, 10)
-    const today = new Date().toISOString().slice(0, 10)
+    const now = new Date()
+    const today = now.toISOString().slice(0, 10)
+    const overdueCutoff = new Date(now.getTime() - 5 * 86400_000).toISOString().slice(0, 10)
 
     const [bk, moveInReady, pending, expiring, rooms, maintenance, moveOuts, overdue, debts] = await Promise.all([
       supabase.from('bookings').select(`
@@ -74,7 +76,7 @@ export default function StaffDashboard() {
         id, invoice_number, total_amount, due_date, status,
         rooms(room_number, buildings(name)),
         tenants(full_name)
-      `).or(`status.eq.overdue,and(status.eq.pending,due_date.lte.${today})`)
+      `).or(`status.eq.overdue,and(status.eq.pending,due_date.lte.${overdueCutoff})`)
         .order('due_date').limit(20),
 
       supabase.from('settlements').select(`

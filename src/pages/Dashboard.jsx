@@ -52,6 +52,7 @@ export default function Dashboard() {
     try {
       const now     = new Date()
       const today   = now.toISOString().slice(0, 10)
+      const overdueCutoff = new Date(now.getTime() - 5 * 86400_000).toISOString().slice(0, 10)
       const month0  = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`
       const month1  = new Date(now.getFullYear(), now.getMonth() + 1, 1).toISOString().slice(0, 10)
       const in30    = new Date(now.getTime() + 30 * 86400_000).toISOString().slice(0, 10)
@@ -63,7 +64,7 @@ export default function Dashboard() {
       ] = await Promise.all([
         supabase.from('rooms').select('id, status', { count: 'exact' }),
         supabase.from('contracts').select('id').eq('status', 'pending_approve'),
-        supabase.from('invoices').select('id').or(`status.eq.overdue,and(status.eq.pending,due_date.lte.${today})`),
+        supabase.from('invoices').select('id').or(`status.eq.overdue,and(status.eq.pending,due_date.lte.${overdueCutoff})`),
         supabase.from('payments').select('id').eq('status', 'pending_approve'),
         supabase.from('bookings').select('id').eq('status', 'waiting'),
         supabase.from('maintenance_requests').select('id').in('status', ['reported', 'in_progress']),
@@ -78,7 +79,7 @@ export default function Dashboard() {
         supabase.from('invoices').select(`
           id, invoice_number, total_amount, due_date,
           rooms(room_number, buildings(name)), tenants(full_name)
-        `).or(`status.eq.overdue,and(status.eq.pending,due_date.lte.${today})`).order('due_date').limit(5),
+        `).or(`status.eq.overdue,and(status.eq.pending,due_date.lte.${overdueCutoff})`).order('due_date').limit(5),
         supabase.from('payments').select(`
           id, amount, paid_date, status,
           invoices(invoice_number, rooms(room_number, buildings(name)), tenants(full_name))

@@ -31,15 +31,22 @@ const S = StyleSheet.create({
   note:    { marginTop: 20, fontSize: 10, color: '#888' },
 })
 
+function addDays(dateStr, days) {
+  const d = new Date(dateStr + 'T00:00:00Z')
+  d.setUTCDate(d.getUTCDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+
 function calcPenaltyPDF(inv, ratePerDay) {
   if (inv.invoice_type !== 'monthly_rent') return null
   if (!inv.due_date) return null
+  if (!['pending', 'overdue'].includes(inv.status)) return null
   const d = new Date()
   const today = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
-  if (today <= inv.due_date) return null
-  const startD = new Date(inv.due_date + 'T00:00:00Z')
-  startD.setUTCDate(startD.getUTCDate() + 1)
-  const startStr = startD.toISOString().slice(0, 10)
+  const graceEndStr = addDays(inv.due_date, 4)
+  if (today <= graceEndStr) return null
+  const startStr = addDays(graceEndStr, 1)
+  const startD = new Date(startStr + 'T00:00:00Z')
   const endD = new Date(today + 'T00:00:00Z')
   const days = Math.floor((endD - startD) / 86400000) + 1
   const fmt = (s) => new Date(s + 'T00:00:00Z').toLocaleDateString('th-TH', { day: 'numeric', month: 'short' })

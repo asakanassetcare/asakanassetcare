@@ -213,7 +213,8 @@ export default function InvoiceDetailPage() {
       rejection_reason: rejectReason.trim(),
     }).eq('id', rejectTarget.id)
     if (!error) {
-      const restoredStatus = invoice.due_date < new Date().toISOString().slice(0, 10) ? 'overdue' : 'pending'
+      const today = new Date().toISOString().slice(0, 10)
+      const restoredStatus = invoice.due_date && addDays(invoice.due_date, 4) < today ? 'overdue' : 'pending'
       await supabase.from('invoices').update({ status: restoredStatus }).eq('id', invoiceId)
     }
     setRejecting(false)
@@ -276,20 +277,28 @@ export default function InvoiceDetailPage() {
     .filter(p => p.status === 'approved')
     .sort((a, b) => new Date(b.approved_at ?? b.created_at ?? 0) - new Date(a.approved_at ?? a.created_at ?? 0))[0]
 
-  // คำนวณค่าปรับ (เฉพาะ monthly_rent ที่เลย due_date แล้ว)
+  function addDays(dateStr, days) {
+    const d = new Date(dateStr + 'T00:00:00Z')
+    d.setUTCDate(d.getUTCDate() + days)
+    return d.toISOString().slice(0, 10)
+  }
+
+  // Penalty starts after the 5-day grace window. Paid/reviewing invoices must
+  // not keep accumulating penalty after payment has been recorded.
   function calcPenalty() {
     if (invoice.invoice_type !== 'monthly_rent') return null
     if (!invoice.due_date) return null
+    if (!['pending', 'overdue'].includes(invoice.status)) return null
     const ratePerDay = Number(settings?.invoice?.penalty_rate_per_day ?? 100)
     const d = new Date()
     const today = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
-    if (today <= invoice.due_date) return null
-    const startD = new Date(invoice.due_date + 'T00:00:00Z')
-    startD.setUTCDate(startD.getUTCDate() + 1)
-    const startStr = startD.toISOString().slice(0, 10)
+    const graceEndStr = addDays(invoice.due_date, 4)
+    if (today <= graceEndStr) return null
+    const startStr = addDays(graceEndStr, 1)
+    const startD = new Date(startStr + 'T00:00:00Z')
     const endD = new Date(today + 'T00:00:00Z')
     const days = Math.floor((endD - startD) / 86400000) + 1
-    return { days, startStr, endStr: today, amount: days * ratePerDay, ratePerDay }
+    return { days, startStr, endStr: today, graceEndStr, amount: days * ratePerDay, ratePerDay }
   }
 
   const penalty     = calcPenalty()

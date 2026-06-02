@@ -41,25 +41,33 @@ function SlipThumb({ path }) {
 }
 
 function isRecorded(item) {
-  if (item._type === 'payment' || item._type === 'booking') return !!item.accounting_recorded_at
+  if (item._type === 'payment' || item._type === 'booking' || item._type === 'rent_advance') return !!item.accounting_recorded_at
   return item.status === 'recorded'
 }
 
 function itemDate(item) {
   if (item._type === 'payment') return item.created_at
   if (item._type === 'booking') return item.payment_recorded_at ?? item.paid_date
+  if (item._type === 'rent_advance') return item.created_at
   return item.issued_at
 }
 
 function itemBuildingId(item) {
   if (item._type === 'payment') return item.invoices?.rooms?.building_id
   if (item._type === 'booking') return item.rooms?.building_id
+  if (item._type === 'rent_advance') return item.rooms?.building_id
   return item.building_id
 }
 
 const DIRECTION_LABEL = {
   refund_to_tenant:   'คืนเงินให้ผู้เช่า',
   charge_from_tenant: 'เรียกเก็บเพิ่มจากผู้เช่า',
+}
+
+function addDays(dateStr, days) {
+  const d = new Date(dateStr + 'T00:00:00Z')
+  d.setUTCDate(d.getUTCDate() + days)
+  return d.toISOString().slice(0, 10)
 }
 
 export default function PaymentsPage() {
@@ -76,6 +84,7 @@ export default function PaymentsPage() {
   const [payments,      setPayments]      = useState([])
   const [receipts,      setReceipts]      = useState([])
   const [bookingPmts,   setBookingPmts]   = useState([])
+  const [rentAdvances,  setRentAdvances]  = useState([])
   const [settlements,   setSettlements]   = useState([])
   const [projects,      setProjects]      = useState([])
   const [bldgMap,       setBldgMap]       = useState({})
@@ -113,7 +122,7 @@ export default function PaymentsPage() {
   useEffect(() => { fetchAll() }, [])
 
   async function fetchAll() {
-    const [{ data: pData }, { data: rData }, { data: bkData }, { data: sData }, { data: projData }, { data: bData }, { data: lsData }] = await Promise.all([
+    const [{ data: pData }, { data: rData }, { data: bkData }, { data: raData }, { data: sData }, { data: projData }, { data: bData }, { data: lsData }] = await Promise.all([
       supabase.from('payments').select(`
         id, amount, paid_date, bank_name, bank_reference, slip_url, status, created_at,
         accounting_recorded_at, accounting_recorded_by,
@@ -136,6 +145,14 @@ export default function PaymentsPage() {
         payment_recorder:profiles!payment_recorded_by(full_name),
         accounting_recorder:profiles!accounting_recorded_by(full_name)
       `).not('slip_url', 'is', null).order('payment_recorded_at', { ascending: false }).limit(200),
+      supabase.from('rent_advance_payments').select(`
+        id, advance_number, contract_id, months_count, monthly_rent_snapshot, paid_amount, remaining_amount,
+        bank_name, bank_reference, slip_url, note, status, created_at,
+        accounting_recorded_at, accounting_recorded_by,
+        rooms(room_number, building_id, buildings(id, name)),
+        tenants(full_name),
+        accounting_recorder:profiles!rent_advance_payments_accounting_recorded_by_fkey(full_name)
+      `).order('created_at', { ascending: false }).limit(200),
       supabase.from('settlements').select(`
         id, amount, direction, status, created_at, paid_at, confirmed_at,
         move_outs(
@@ -162,6 +179,7 @@ export default function PaymentsPage() {
     setPayments((pData ?? []).map(p => ({ ...p, _type: 'payment' })))
     setReceipts((rData ?? []).map(r => ({ ...r, _type: 'receipt' })))
     setBookingPmts((bkData ?? []).map(b => ({ ...b, _type: 'booking' })))
+    setRentAdvances((raData ?? []).map(r => ({ ...r, _type: 'rent_advance' })))
     setSettlements(sData ?? [])
     setLineSlips(lsData ?? [])
     if (projData?.length && !filterProject) setFilterProject(projData[0].id)
@@ -176,6 +194,7 @@ export default function PaymentsPage() {
   function itemBuildingName(item) {
     if (item._type === 'payment') return item.invoices?.rooms?.buildings?.name
     if (item._type === 'booking') return item.rooms?.buildings?.name
+    if (item._type === 'rent_advance') return item.rooms?.buildings?.name
     const bId = itemBuildingId(item)
     return bId ? bldgMap[bId]?.name : null
   }
@@ -242,7 +261,7 @@ export default function PaymentsPage() {
     }).eq('id', rejectTarget.id)
     if (!error && rejectTarget.invoices?.id) {
       const today = new Date().toISOString().slice(0, 10)
-      const restoredStatus = rejectTarget.invoices.due_date < today ? 'overdue' : 'pending'
+      const restoredStatus = rejectTarget.invoices.due_date && addDays(rejectTarget.invoices.due_date, 4) < today ? 'overdue' : 'pending'
       const { error: invErr } = await supabase.from('invoices').update({ status: restoredStatus }).eq('id', rejectTarget.invoices.id)
       if (invErr) {
         setRejecting(false)
@@ -265,6 +284,11 @@ export default function PaymentsPage() {
       }).eq('id', item.id)
     } else if (item._type === 'booking') {
       await supabase.from('bookings').update({
+        accounting_recorded_at: new Date().toISOString(),
+        accounting_recorded_by: profile.id,
+      }).eq('id', item.id)
+    } else if (item._type === 'rent_advance') {
+      await supabase.from('rent_advance_payments').update({
         accounting_recorded_at: new Date().toISOString(),
         accounting_recorded_by: profile.id,
       }).eq('id', item.id)
@@ -379,8 +403,8 @@ export default function PaymentsPage() {
   ]
 
   const allItems = useMemo(() =>
-    [...payments, ...receipts, ...bookingPmts].sort((a, b) => new Date(itemDate(b)) - new Date(itemDate(a)))
-  , [payments, receipts, bookingPmts])
+    [...payments, ...receipts, ...bookingPmts, ...rentAdvances].sort((a, b) => new Date(itemDate(b)) - new Date(itemDate(a)))
+  , [payments, receipts, bookingPmts, rentAdvances])
 
   const byProject = useMemo(() =>
     filterProject
@@ -410,6 +434,14 @@ export default function PaymentsPage() {
       if (it._type === 'booking') {
         return (
           it.booking_number?.toLowerCase().includes(q) ||
+          it.tenants?.full_name?.toLowerCase().includes(q) ||
+          it.rooms?.room_number?.toLowerCase().includes(q) ||
+          it.bank_reference?.toLowerCase().includes(q)
+        )
+      }
+      if (it._type === 'rent_advance') {
+        return (
+          it.advance_number?.toLowerCase().includes(q) ||
           it.tenants?.full_name?.toLowerCase().includes(q) ||
           it.rooms?.room_number?.toLowerCase().includes(q) ||
           it.bank_reference?.toLowerCase().includes(q)
@@ -611,6 +643,42 @@ export default function PaymentsPage() {
                           </p>
                         )}
                       </div>
+                    ) : item._type === 'rent_advance' ? (
+                      <div className="cursor-pointer flex-1 min-w-0"
+                        onClick={() => navigate(`/contracts/${item.contract_id}`)}>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-semibold text-gray-900">
+                            {item.advance_number}
+                            <span className="ml-2 font-bold">฿{Number(item.paid_amount).toLocaleString('th-TH')}</span>
+                          </p>
+                          <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-700">
+                            ดาวน์ค่าเช่าล่วงหน้า
+                          </span>
+                          {bldgName && (
+                            <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-600">
+                              {bldgName}
+                            </span>
+                          )}
+                          {item.status === 'fully_used' && (
+                            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600">
+                              ใช้หมดแล้ว
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-gray-500">
+                          ห้อง {item.rooms?.room_number} · {item.tenants?.full_name}
+                        </p>
+                        <p className="text-xs text-gray-400">
+                          ชำระ {formatThaiDateTime(item.created_at)}
+                          {item.bank_name ? ` · ${item.bank_name}` : ''}
+                          {item.bank_reference ? ` · ${item.bank_reference}` : ''}
+                        </p>
+                        {tab === 'recorded' && item.accounting_recorder?.full_name && (
+                          <p className="text-xs text-gray-400">
+                            บันทึกโดย {item.accounting_recorder.full_name} · {formatThaiDateTime(item.accounting_recorded_at)}
+                          </p>
+                        )}
+                      </div>
                     ) : (
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 flex-wrap">
@@ -645,7 +713,7 @@ export default function PaymentsPage() {
 
                     {/* Actions */}
                     <div className="flex items-center gap-2 shrink-0">
-                      {(item._type === 'payment' || item._type === 'booking') && item.slip_url && (
+                      {(item._type === 'payment' || item._type === 'booking' || item._type === 'rent_advance') && item.slip_url && (
                         <SlipThumb path={item.slip_url} />
                       )}
                       {item._type === 'payment' && <Badge variant={item.status} />}
@@ -667,7 +735,8 @@ export default function PaymentsPage() {
                       {canRecord && tab === 'pending' && (
                         (item._type === 'payment' && item.status === 'approved') ||
                         item._type === 'receipt' ||
-                        item._type === 'booking'
+                        item._type === 'booking' ||
+                        item._type === 'rent_advance'
                       ) && (
                         <Button size="sm" icon={<BookCheck className="h-3.5 w-3.5" />}
                           loading={recording === item.id}
