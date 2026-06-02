@@ -652,7 +652,7 @@ export default function PaymentsPage() {
                             <span className="ml-2 font-bold">฿{Number(item.paid_amount).toLocaleString('th-TH')}</span>
                           </p>
                           <span className="rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-medium text-green-700">
-                            ดาวน์ค่าเช่าล่วงหน้า
+                            ค่าเช่ารับล่วงหน้า
                           </span>
                           {bldgName && (
                             <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-medium text-blue-600">

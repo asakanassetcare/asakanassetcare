@@ -73,7 +73,7 @@ export default function RentAdvancePDF({ advance, contract, company = {} }) {
   const rem = Number(ra.remaining_amount)
 
   return (
-    <Document title={`ใบรับดาวน์ล่วงหน้า ${ra.advance_number}`}>
+    <Document title={`ใบรับค่าเช่ารับล่วงหน้า ${ra.advance_number}`}>
       <Page size="A4" style={S.page}>
 
         {/* Header */}
@@ -88,7 +88,7 @@ export default function RentAdvancePDF({ advance, contract, company = {} }) {
             )}
           </View>
           <View style={S.titleCol}>
-            <Text style={S.titleMain}>{k('ใบรับดาวน์ล่วงหน้า')}</Text>
+            <Text style={S.titleMain}>{k('ใบรับค่าเช่ารับล่วงหน้า')}</Text>
             <Text style={S.titleEn}>Prepaid Rent Receipt</Text>
             <Text style={S.titleOrig}>{k('ต้นฉบับ / Original')}</Text>
           </View>
@@ -101,7 +101,7 @@ export default function RentAdvancePDF({ advance, contract, company = {} }) {
         <View style={S.introRow}>
           <View style={S.introText}>
             <Text style={S.introLine}>
-              {k('ได้รับเงินดาวน์ล่วงหน้าค่าเช่าจากผู้เช่าตามรายละเอียดด้านล่าง ยอดดังกล่าวจะถูกหักออกจากใบแจ้งหนี้ค่าเช่ารายเดือนโดยอัตโนมัติ')}
+              {k('ได้รับค่าเช่ารับล่วงหน้าจากผู้เช่าตามรายละเอียดด้านล่าง ยอดดังกล่าวจะถูกหักออกจากใบแจ้งหนี้ค่าเช่ารายเดือนโดยอัตโนมัติ')}
             </Text>
           </View>
           <View style={S.metaPanel}>
@@ -155,7 +155,7 @@ export default function RentAdvancePDF({ advance, contract, company = {} }) {
           <View style={S.tblRow}>
             <Text style={[S.cNo, S.tdTxt]}>1</Text>
             <View style={S.cDesc}>
-              <Text style={[S.tdTxt, { fontWeight: 700 }]}>{k('ดาวน์ล่วงหน้าค่าเช่า')}</Text>
+              <Text style={[S.tdTxt, { fontWeight: 700 }]}>{k('ค่าเช่ารับล่วงหน้า')}</Text>
               <Text style={S.tdSub}>{k(`Prepaid rent · ${c.rooms?.buildings?.name ?? ''} ห้อง ${c.rooms?.room_number ?? ''}`)}</Text>
               {ra.note && <Text style={S.tdSub}>{ra.note}</Text>}
             </View>
@@ -187,7 +187,7 @@ export default function RentAdvancePDF({ advance, contract, company = {} }) {
         <View style={S.note}>
           <Text style={S.noteLbl}>{k('หมายเหตุ')}</Text>
           <Text style={S.noteTxt}>
-            {k('ยอดเงินดาวน์ล่วงหน้าจะถูกหักออกจากใบแจ้งหนี้ค่าเช่ารายเดือนโดยอัตโนมัติ หากยอดใบแจ้งหนี้สูงกว่ายอดดาวน์ที่เหลือ ผู้เช่าจะได้รับแจ้งให้ชำระส่วนต่าง')}
+            {k('ยอดค่าเช่ารับล่วงหน้าจะถูกหักออกจากใบแจ้งหนี้ค่าเช่ารายเดือนโดยอัตโนมัติ หากยอดใบแจ้งหนี้สูงกว่ายอดรับล่วงหน้าที่เหลือ ผู้เช่าจะได้รับแจ้งให้ชำระส่วนต่าง')}
           </Text>
         </View>
 

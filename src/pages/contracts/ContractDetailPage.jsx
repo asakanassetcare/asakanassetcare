@@ -674,7 +674,7 @@ export default function ContractDetailPage() {
               icon={<Wallet className="h-4 w-4" />}
               onClick={() => { setRaMonths(1); setRaSlipFile(null); setRaBankName(''); setRaBankRef(''); setRaNote(''); setRaErr(''); setRaModal(true) }}
             >
-              ดาวน์ล่วงหน้า
+              ค่าเช่ารับล่วงหน้า
               {rentAdvances.some(r => r.status === 'active') && (
                 <span className="ml-1.5 rounded-full bg-green-600 px-1.5 py-0.5 text-[10px] font-semibold text-white leading-none">
                   ฿{rentAdvances.filter(r => r.status === 'active').reduce((s, r) => s + Number(r.remaining_amount), 0).toLocaleString('th-TH')}
@@ -911,7 +911,7 @@ export default function ContractDetailPage() {
             <Card className="lg:col-span-2">
               <div className="mb-3 flex items-center justify-between">
                 <div>
-                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">ดาวน์ล่วงหน้าค่าเช่า</p>
+                  <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">ค่าเช่ารับล่วงหน้า</p>
                   {rentAdvances.some(r => r.status === 'active') && (
                     <p className="mt-0.5 text-sm font-semibold text-green-700">
                       คงเหลือ ฿{rentAdvances.filter(r => r.status === 'active').reduce((s, r) => s + Number(r.remaining_amount), 0).toLocaleString('th-TH')}
@@ -928,7 +928,7 @@ export default function ContractDetailPage() {
                 )}
               </div>
               {rentAdvances.length === 0 ? (
-                <p className="text-sm text-gray-400">ยังไม่มีรายการดาวน์ล่วงหน้า</p>
+                <p className="text-sm text-gray-400">ยังไม่มีรายการค่าเช่ารับล่วงหน้า</p>
               ) : (
                 <div className="flex flex-col gap-2">
                   {rentAdvances.map((ra) => (
@@ -980,7 +980,7 @@ export default function ContractDetailPage() {
             <Card className="lg:col-span-2 border-green-200 bg-green-50">
               <div className="flex items-center justify-between">
                 <div>
-                  <p className="text-sm font-semibold text-green-800">บันทึกดาวน์ล่วงหน้าสำเร็จ — {raSaved.advance_number}</p>
+                  <p className="text-sm font-semibold text-green-800">บันทึกค่าเช่ารับล่วงหน้าสำเร็จ — {raSaved.advance_number}</p>
                   <p className="text-xs text-green-600">฿{Number(raSaved.paid_amount).toLocaleString('th-TH')} · {raSaved.months_count} เดือน</p>
                 </div>
                 <div className="flex gap-2">
@@ -1420,7 +1420,7 @@ export default function ContractDetailPage() {
       <Modal
         open={raModal}
         onClose={() => setRaModal(false)}
-        title="บันทึกดาวน์ล่วงหน้าค่าเช่า"
+        title="บันทึกค่าเช่ารับล่วงหน้า"
         footer={
           <>
             <Button variant="secondary" onClick={() => setRaModal(false)}>ยกเลิก</Button>
@@ -1516,7 +1516,7 @@ export default function ContractDetailPage() {
           </div>
 
           <div className="rounded-lg bg-amber-50 px-4 py-3 text-xs text-amber-700">
-            ระบบจะหักยอดนี้ออกจากใบแจ้งหนี้ค่าเช่ารายเดือนโดยอัตโนมัติ หากยอดใบแจ้งหนี้สูงกว่าดาวน์ที่เหลือ ผู้เช่าจะต้องชำระส่วนต่าง
+            ระบบจะหักยอดนี้ออกจากใบแจ้งหนี้ค่าเช่ารายเดือนโดยอัตโนมัติ หากยอดใบแจ้งหนี้สูงกว่าค่าเช่ารับล่วงหน้าที่เหลือ ผู้เช่าจะต้องชำระส่วนต่าง
           </div>
 
           {raErr && <p className="text-sm text-red-600">{raErr}</p>}
