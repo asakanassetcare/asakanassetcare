@@ -128,6 +128,7 @@ export default function ContractDetailPage() {
   const [raSaving,         setRaSaving]         = useState(false)
   const [raErr,            setRaErr]            = useState('')
   const [raSaved,          setRaSaved]          = useState(null) // last saved advance for print
+  const [managerApprovingRentAdvanceId, setManagerApprovingRentAdvanceId] = useState(null)
 
   useEffect(() => { fetchContract() }, [contractId])
   useEffect(() => { if (tab === 'invoices') fetchInvoices() }, [tab])
@@ -194,7 +195,7 @@ export default function ContractDetailPage() {
     // Rent advance payments (active contracts)
     const { data: raData } = await supabase
       .from('rent_advance_payments')
-      .select('id, advance_number, months_count, monthly_rent_snapshot, paid_amount, remaining_amount, bank_name, bank_reference, slip_url, note, status, created_at')
+      .select('id, advance_number, months_count, monthly_rent_snapshot, paid_amount, remaining_amount, bank_name, bank_reference, slip_url, note, status, created_at, head_approved_at, head_rejected_at')
       .eq('contract_id', contractId)
       .order('created_at', { ascending: false })
     setRentAdvances(raData ?? [])
@@ -462,13 +463,30 @@ export default function ContractDetailPage() {
       bank_reference:        raBankRef.trim() || null,
       note:                  raNote.trim()    || null,
       created_by:            profile.id,
-    }).select('id, advance_number, months_count, monthly_rent_snapshot, paid_amount, remaining_amount, bank_name, bank_reference, slip_url, note, status, created_at').single()
+    }).select('id, advance_number, months_count, monthly_rent_snapshot, paid_amount, remaining_amount, bank_name, bank_reference, slip_url, note, status, created_at, head_approved_at, head_rejected_at').single()
 
     setRaSaving(false)
     if (error) { setRaErr(error.message); return }
     setRaSaved(inserted)
     setRaModal(false)
     setRaMonths(1); setRaSlipFile(null); setRaBankName(''); setRaBankRef(''); setRaNote('')
+    fetchContract()
+  }
+
+  async function handleManagerApproveRentAdvance(advance) {
+    setManagerApprovingRentAdvanceId(advance.id)
+    const { error } = await supabase.from('rent_advance_payments').update({
+      head_approved_by:       profile.id,
+      head_approved_at:       new Date().toISOString(),
+      head_rejected_by:       null,
+      head_rejected_at:       null,
+      head_rejection_reason:  null,
+    }).eq('id', advance.id)
+    setManagerApprovingRentAdvanceId(null)
+    if (error) {
+      alert(error.message)
+      return
+    }
     fetchContract()
   }
 
@@ -960,6 +978,16 @@ export default function ContractDetailPage() {
                           >
                             ดูสลิป
                           </button>
+                        )}
+                        {isHeadStaff && !ra.head_approved_at && !ra.head_rejected_at && (
+                          <Button
+                            size="sm"
+                            icon={<CheckCircle className="h-3.5 w-3.5" />}
+                            loading={managerApprovingRentAdvanceId === ra.id}
+                            onClick={() => handleManagerApproveRentAdvance(ra)}
+                          >
+                            Manager approve
+                          </Button>
                         )}
                         <PdfDownloadButton
                           document={<RentAdvancePDF advance={ra} contract={c} company={settings?.company ?? {}} />}

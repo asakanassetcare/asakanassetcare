@@ -74,6 +74,7 @@ export default function MoveOutDetailPage() {
   // Accounting: simple confirm (zero amount)
   const [confirming,  setConfirming]  = useState(false)
   const [confirmErr,  setConfirmErr]  = useState('')
+  const [managerApprovingSettlement, setManagerApprovingSettlement] = useState(false)
 
   const { settings } = useSettings()
 
@@ -333,6 +334,23 @@ export default function MoveOutDetailPage() {
     })
     setConfirming(false)
     if (error) { setConfirmErr(error.message); return }
+    fetchAll()
+  }
+
+  async function handleManagerApproveSettlement() {
+    setManagerApprovingSettlement(true)
+    const { error } = await supabase.from('settlements').update({
+      head_approved_by:       profile.id,
+      head_approved_at:       new Date().toISOString(),
+      head_rejected_by:       null,
+      head_rejected_at:       null,
+      head_rejection_reason:  null,
+    }).eq('id', settlement.id)
+    setManagerApprovingSettlement(false)
+    if (error) {
+      alert(error.message)
+      return
+    }
     fetchAll()
   }
 
@@ -651,6 +669,17 @@ export default function MoveOutDetailPage() {
               )}
               {settlement.paid_at && (
                 <p className="text-xs text-gray-400">staff บันทึกเมื่อ {formatThaiDateTime(settlement.paid_at)}</p>
+              )}
+
+              {isHeadStaff && settlement.status === 'paid_by_staff' && !settlement.head_approved_at && !settlement.head_rejected_at && (
+                <Button
+                  size="sm"
+                  icon={<CheckCircle className="h-3.5 w-3.5" />}
+                  loading={managerApprovingSettlement}
+                  onClick={handleManagerApproveSettlement}
+                >
+                  Manager approve
+                </Button>
               )}
 
               {/* Accounting: confirm charge (paid_by_staff) or zero */}

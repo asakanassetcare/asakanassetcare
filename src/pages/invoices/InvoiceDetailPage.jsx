@@ -52,6 +52,7 @@ export default function InvoiceDetailPage() {
 
   // Approve/reject payment
   const [approvingId,  setApprovingId]  = useState(null)
+  const [managerApprovingId, setManagerApprovingId] = useState(null)
   const [rejectModal,  setRejectModal]  = useState(false)
   const [rejectTarget, setRejectTarget] = useState(null)
   const [rejectReason, setRejectReason] = useState('')
@@ -208,6 +209,23 @@ export default function InvoiceDetailPage() {
     fetchAll()
   }
 
+  async function handleManagerApprovePayment(pmt) {
+    setManagerApprovingId(pmt.id)
+    const { error } = await supabase.from('payments').update({
+      head_approved_by:       profile.id,
+      head_approved_at:       new Date().toISOString(),
+      head_rejected_by:       null,
+      head_rejected_at:       null,
+      head_rejection_reason:  null,
+    }).eq('id', pmt.id)
+    setManagerApprovingId(null)
+    if (error) {
+      alert(error.message)
+      return
+    }
+    fetchAll()
+  }
+
   async function handleRejectPayment() {
     if (!rejectReason.trim()) { setRejectErr('กรุณากรอกเหตุผล'); return }
     setRejecting(true)
@@ -277,6 +295,7 @@ export default function InvoiceDetailPage() {
   const canPay     = ['pending', 'overdue'].includes(invoice.status) && !hasPendingPayment && ['super_admin', 'head_staff', 'staff'].includes(role)
   const canCancel  = ['pending', 'overdue', 'paid_pending_approve'].includes(invoice.status) && ['super_admin', 'accounting'].includes(role)
   const canApprove = ['super_admin', 'accounting'].includes(role)
+  const canManagerApprove = ['super_admin', 'head_staff'].includes(role)
   const approvedPayment = payments
     .filter(p => p.status === 'approved')
     .sort((a, b) => new Date(b.approved_at ?? b.created_at ?? 0) - new Date(a.approved_at ?? a.created_at ?? 0))[0]
@@ -544,6 +563,13 @@ export default function InvoiceDetailPage() {
                       }} className="text-xs text-blue-600 hover:underline">ดูสลิป</button>
                     )}
                     <Badge variant={pmt.status} />
+                    {canManagerApprove && pmt.status === 'pending_approve' && !pmt.head_approved_at && !pmt.head_rejected_at && (
+                      <Button size="sm" icon={<CheckCircle className="h-3.5 w-3.5" />}
+                        loading={managerApprovingId === pmt.id}
+                        onClick={() => handleManagerApprovePayment(pmt)}>
+                        Manager approve
+                      </Button>
+                    )}
                     {canApprove && pmt.status === 'pending_approve' && pmt.head_approved_at && (
                       <>
                         {canReviewInvoicePayment && (

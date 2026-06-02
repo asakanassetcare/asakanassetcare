@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { ChevronRight, FileText, X, Upload, CreditCard } from 'lucide-react'
+import { ChevronRight, FileText, X, Upload, CreditCard, CheckCircle } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
 import { useSettings } from '../../hooks/useSettings'
@@ -59,6 +59,7 @@ export default function BookingDetailPage() {
   const [slipSignedUrl, setSlipSignedUrl] = useState(null)
   const [paying,        setPaying]        = useState(false)
   const [payError,      setPayError]      = useState('')
+  const [managerApproving, setManagerApproving] = useState(false)
 
   useEffect(() => { fetchBooking() }, [bookingId])
 
@@ -160,6 +161,23 @@ export default function BookingDetailPage() {
     fetchBooking()
   }
 
+  async function handleManagerApprovePayment() {
+    setManagerApproving(true)
+    const { error } = await supabase.from('bookings').update({
+      head_approved_by:       profile.id,
+      head_approved_at:       new Date().toISOString(),
+      head_rejected_by:       null,
+      head_rejected_at:       null,
+      head_rejection_reason:  null,
+    }).eq('id', bookingId)
+    setManagerApproving(false)
+    if (error) {
+      alert(error.message)
+      return
+    }
+    fetchBooking()
+  }
+
   async function handleCancel() {
     if (!cancelReason.trim()) { setCancelError('กรุณากรอกเหตุผลการยกเลิก'); return }
     setCancelling(true)
@@ -216,6 +234,11 @@ export default function BookingDetailPage() {
 
   const canAct    = booking.status === 'waiting' && isAtLeast(role, 'staff')
   const hasPaid   = !!booking.slip_url
+  const canManagerApprovePayment =
+    ['super_admin', 'head_staff'].includes(role) &&
+    hasPaid &&
+    !booking.head_approved_at &&
+    !booking.head_rejected_at
   const company   = settings?.company ?? {}
 
   return (
@@ -243,6 +266,15 @@ export default function BookingDetailPage() {
               filename={`booking_receipt_${booking.booking_number}.pdf`}
               label="พิมพ์ใบรับเงินจอง"
             />
+          )}
+          {canManagerApprovePayment && (
+            <Button
+              icon={<CheckCircle className="h-4 w-4" />}
+              loading={managerApproving}
+              onClick={handleManagerApprovePayment}
+            >
+              Manager approve
+            </Button>
           )}
           {canAct && (
             <>
