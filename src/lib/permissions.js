@@ -34,11 +34,11 @@ export function canApprovePayment(role) {
 }
 
 export function canManageUsers(role) {
-  return role === ROLES.SUPER_ADMIN
+  return hasRole(role, [ROLES.SUPER_ADMIN, ROLES.HEAD_STAFF])
 }
 
 export function canManageSettings(role) {
-  return role === ROLES.SUPER_ADMIN
+  return hasRole(role, [ROLES.SUPER_ADMIN, ROLES.HEAD_STAFF])
 }
 
 export function canAssignStaff(role) {

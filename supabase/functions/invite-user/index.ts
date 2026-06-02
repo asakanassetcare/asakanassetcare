@@ -31,15 +31,22 @@ Deno.serve(async (req) => {
       auth: { autoRefreshToken: false, persistSession: false },
     })
 
-    // Verify caller is super_admin
+    // Verify caller can manage users. Super admin can create any non-super-admin
+    // role; head staff can manage operational users only.
     const { data: roleData, error: roleError } = await callerClient.rpc('current_user_role')
-    if (roleError || roleData !== 'super_admin') {
-      return Response.json({ error: 'Forbidden — super_admin only' }, { status: 403, headers: corsHeaders })
+    if (roleError || !['super_admin', 'head_staff'].includes(roleData)) {
+      return Response.json({ error: 'Forbidden' }, { status: 403, headers: corsHeaders })
     }
 
     const { email, full_name, role, phone } = await req.json()
     if (!email || !full_name || !role) {
       return Response.json({ error: 'email, full_name, role are required' }, { status: 400, headers: corsHeaders })
+    }
+    if (role === 'super_admin') {
+      return Response.json({ error: 'Cannot invite super_admin from this form' }, { status: 403, headers: corsHeaders })
+    }
+    if (roleData === 'head_staff' && !['head_staff', 'staff', 'service'].includes(role)) {
+      return Response.json({ error: 'Forbidden role for head_staff' }, { status: 403, headers: corsHeaders })
     }
 
     // Generate temporary password

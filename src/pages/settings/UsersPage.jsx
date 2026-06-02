@@ -39,7 +39,7 @@ function RoleBadge({ role }) {
 
 export default function UsersPage() {
   return (
-    <RequireRole roles={['super_admin']} fallback={
+    <RequireRole roles={['super_admin', 'head_staff']} fallback={
       <div className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">ไม่มีสิทธิ์เข้าถึง��น้านี้</div>
     }>
       <UsersContent />
@@ -48,7 +48,7 @@ export default function UsersPage() {
 }
 
 function UsersContent() {
-  const { session } = useAuth()
+  const { session, role } = useAuth()
   const [users, setUsers] = useState([])
   const [loading, setLoading] = useState(true)
 
@@ -65,6 +65,10 @@ function UsersContent() {
   const [editForm, setEditForm] = useState({ full_name: '', phone: '', role: 'staff' })
   const [saving, setSaving] = useState(false)
   const [editError, setEditError] = useState('')
+  const isSuperAdmin = role === 'super_admin'
+  const roleOptions = isSuperAdmin
+    ? ROLE_OPTIONS
+    : ROLE_OPTIONS.filter((option) => ['head_staff', 'staff', 'service'].includes(option.value))
 
   useEffect(() => { fetchUsers() }, [])
 
@@ -77,6 +81,10 @@ function UsersContent() {
   async function handleInvite(e) {
     e.preventDefault()
     setInviteError('')
+    if (!roleOptions.some((option) => option.value === inviteForm.role)) {
+      setInviteError('ไม่มีสิทธิ์กำหนดสิทธิ์นี้')
+      return
+    }
     setInviting(true)
 
     const { data, error } = await supabase.functions.invoke('invite-user', {
@@ -101,20 +109,32 @@ function UsersContent() {
   }
 
   function openEdit(user) {
+    if (!canEditUser(user)) return
     setEditUser(user)
     setEditForm({ full_name: user.full_name, phone: user.phone ?? '', role: user.role })
     setEditError('')
   }
 
+  function canEditUser(user) {
+    if (isSuperAdmin) return user.role !== 'super_admin'
+    return ['head_staff', 'staff', 'service'].includes(user.role)
+  }
+
   async function handleEdit(e) {
     e.preventDefault()
     setEditError('')
+    if (!roleOptions.some((option) => option.value === editForm.role)) {
+      setEditError('ไม่มีสิทธิ์กำหนดสิทธิ์นี้')
+      return
+    }
     setSaving(true)
 
-    const { error } = await supabase
-      .from('profiles')
-      .update({ full_name: editForm.full_name, phone: editForm.phone || null, role: editForm.role })
-      .eq('id', editUser.id)
+    const { error } = await supabase.rpc('update_user_profile', {
+      p_user_id: editUser.id,
+      p_full_name: editForm.full_name,
+      p_phone: editForm.phone || null,
+      p_role: editForm.role,
+    })
 
     setSaving(false)
     if (error) { setEditError(error.message); return }
@@ -176,7 +196,7 @@ function UsersContent() {
                   <td className="px-4 py-3"><RoleBadge role={u.role} /></td>
                   <td className="px-4 py-3 text-gray-400">{formatThaiDate(u.created_at)}</td>
                   <td className="px-4 py-3">
-                    {u.role !== 'super_admin' && (
+                    {canEditUser(u) && (
                       <button
                         onClick={() => openEdit(u)}
                         className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700 transition-colors"
@@ -258,7 +278,7 @@ function UsersContent() {
             <Select
               label="สิทธิ์"
               required
-              options={ROLE_OPTIONS}
+              options={roleOptions}
               value={inviteForm.role}
               onChange={(e) => setInviteForm((p) => ({ ...p, role: e.target.value }))}
             />
@@ -298,7 +318,7 @@ function UsersContent() {
           <Select
             label="สิทธิ์"
             required
-            options={ROLE_OPTIONS}
+            options={roleOptions}
             value={editForm.role}
             onChange={(e) => setEditForm((p) => ({ ...p, role: e.target.value }))}
           />

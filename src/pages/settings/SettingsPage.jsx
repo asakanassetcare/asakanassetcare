@@ -35,7 +35,7 @@ export default function SettingsPage() {
   const [active, setActive] = useState('company')
 
   return (
-    <RequireRole roles={['super_admin']} fallback={
+    <RequireRole roles={['super_admin', 'head_staff']} fallback={
       <div className="rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">ไม่มีสิทธิ์เข้าถึงหน้านี้</div>
     }>
       <div className="mb-6">

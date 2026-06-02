@@ -8,7 +8,7 @@ import {
 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
-import { canManageUsers } from '../../lib/permissions'
+import { canManageSettings, canManageUsers } from '../../lib/permissions'
 
 const NAV_ITEMS = [
   { to: '/',              label: 'Dashboard',        icon: LayoutDashboard, end: true },
@@ -30,19 +30,20 @@ const NAV_ITEMS = [
   { type: 'divider' },
 
   { to: '/approvals',     label: 'รออนุมัติ',          icon: CheckSquare, approvalOnly: true, noService: true },
-  { to: '/payments',      label: 'บัญชี',               icon: CreditCard, noService: true },
+  { to: '/payments',      label: 'บัญชี',               icon: CreditCard, accountingOnly: true, noService: true },
   { to: '/maintenance',   label: 'แจ้งซ่อม',          icon: Wrench },
 
   { type: 'divider', adminOnly: true },
 
-  { to: '/settings',      label: 'ตั้งค่า',            icon: Settings, adminOnly: true },
-  { to: '/users',         label: 'ผู้ใช้งาน & สิทธิ์',  icon: ShieldCheck, adminOnly: true },
-  { to: '/activity-log',  label: 'Activity Log',       icon: ClipboardList, adminOnly: true },
+  { to: '/settings',      label: 'ตั้งค่า',            icon: Settings, settingsOnly: true },
+  { to: '/users',         label: 'ผู้ใช้งาน & สิทธิ์',  icon: ShieldCheck, userManageOnly: true },
+  { to: '/activity-log',  label: 'Activity Log',       icon: ClipboardList, superAdminOnly: true },
 ]
 
 export default function Sidebar({ collapsed, mobileOpen, onMobileClose }) {
   const { role } = useAuth()
-  const isAdmin = canManageUsers(role)
+  const canManageUserAccounts = canManageUsers(role)
+  const canManageAppSettings = canManageSettings(role)
   const canApprove = ['super_admin', 'executive'].includes(role)
   const isService = role === 'service'
   const [pendingCount, setPendingCount] = useState(0)
@@ -86,11 +87,15 @@ export default function Sidebar({ collapsed, mobileOpen, onMobileClose }) {
       <nav className="flex-1 overflow-y-auto px-2 py-3 scrollbar-thin">
         {NAV_ITEMS.map((item, i) => {
           if (item.type === 'divider') {
-            if (item.adminOnly && !isAdmin) return null
+            if (item.adminOnly && !canManageUserAccounts && !canManageAppSettings) return null
             if (item.noService && isService) return null
             return <div key={i} className="my-2 border-t border-gray-100" />
           }
-          if (item.adminOnly && !isAdmin) return null
+          if (item.adminOnly && !canManageUserAccounts && !canManageAppSettings) return null
+          if (item.superAdminOnly && role !== 'super_admin') return null
+          if (item.settingsOnly && !canManageAppSettings) return null
+          if (item.userManageOnly && !canManageUserAccounts) return null
+          if (item.accountingOnly && !['super_admin', 'accounting'].includes(role)) return null
           if (item.approvalOnly && !canApprove) return null
           if (item.noService && isService) return null
 
