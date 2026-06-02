@@ -173,6 +173,10 @@ export default function InvoiceDetailPage() {
   }
 
   async function handleApprovePayment(pmt) {
+    if (!pmt.head_approved_at) {
+      alert('ต้องให้ Head Staff อนุมัติรายการชำระนี้ก่อนส่งต่อบัญชี')
+      return
+    }
     if (!canReviewInvoicePayment) {
       alert('อนุมัติไม่ได้ เพราะใบแจ้งหนี้ไม่ได้อยู่สถานะรอยืนยันชำระ')
       return
@@ -540,7 +544,7 @@ export default function InvoiceDetailPage() {
                       }} className="text-xs text-blue-600 hover:underline">ดูสลิป</button>
                     )}
                     <Badge variant={pmt.status} />
-                    {canApprove && pmt.status === 'pending_approve' && (
+                    {canApprove && pmt.status === 'pending_approve' && pmt.head_approved_at && (
                       <>
                         {canReviewInvoicePayment && (
                           <Button size="sm" icon={<CheckCircle className="h-3.5 w-3.5" />}

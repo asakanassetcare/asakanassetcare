@@ -124,8 +124,7 @@ export default function PaymentsPage() {
   async function fetchAll() {
     const [{ data: pData }, { data: rData }, { data: bkData }, { data: raData }, { data: sData }, { data: projData }, { data: bData }, { data: lsData }] = await Promise.all([
       supabase.from('payments').select(`
-        id, amount, paid_date, bank_name, bank_reference, slip_url, status, created_at,
-        accounting_recorded_at, accounting_recorded_by,
+        *, 
         invoices(id, invoice_number, invoice_type, total_amount, due_date, status,
           rooms(room_number, building_id, buildings(id, name)),
           tenants(full_name, line_user_id)),
@@ -138,23 +137,20 @@ export default function PaymentsPage() {
         recorder:profiles!recorded_by(full_name)
       `).order('issued_at', { ascending: false }),
       supabase.from('bookings').select(`
-        id, booking_number, deposit_amount, paid_date, bank_name, bank_reference, slip_url, status,
-        payment_recorded_at, accounting_recorded_at, accounting_recorded_by,
+        *,
         rooms(room_number, building_id, buildings(id, name)),
         tenants(full_name, line_user_id),
         payment_recorder:profiles!payment_recorded_by(full_name),
         accounting_recorder:profiles!accounting_recorded_by(full_name)
       `).not('slip_url', 'is', null).order('payment_recorded_at', { ascending: false }).limit(200),
       supabase.from('rent_advance_payments').select(`
-        id, advance_number, contract_id, months_count, monthly_rent_snapshot, paid_amount, remaining_amount,
-        bank_name, bank_reference, slip_url, note, status, created_at,
-        accounting_recorded_at, accounting_recorded_by,
+        *,
         rooms(room_number, building_id, buildings(id, name)),
         tenants(full_name),
         accounting_recorder:profiles!rent_advance_payments_accounting_recorded_by_fkey(full_name)
       `).order('created_at', { ascending: false }).limit(200),
       supabase.from('settlements').select(`
-        id, amount, direction, status, created_at, paid_at, confirmed_at,
+        *,
         move_outs(
           id, move_out_number, move_out_date, settlement_deadline,
           tenants(full_name),
@@ -416,7 +412,9 @@ export default function PaymentsPage() {
   , [allItems, filterProject, bldgMap])
 
   const byTab = useMemo(() =>
-    byProject.filter(it => tab === 'recorded' ? isRecorded(it) : !isRecorded(it))
+    byProject
+      .filter(isVisibleToAccounting)
+      .filter(it => tab === 'recorded' ? isRecorded(it) : !isRecorded(it))
   , [byProject, tab])
 
   const filtered = useMemo(() => {
@@ -461,20 +459,39 @@ export default function PaymentsPage() {
       : settlements
   , [settlements, filterProject, bldgMap])
 
+  const visibleSettlements = filteredSettlements.filter(s =>
+    s.status === 'processing' ||
+    (s.status === 'pending' && s.direction === 'refund_to_tenant') ||
+    (s.status === 'paid_by_staff' && s.head_approved_at)
+  )
+
   const pendingLineSlips = lineSlips.filter(s => s.status === 'pending')
-  const pendingApproveCount = byProject.filter(it => it._type === 'payment' && it.status === 'pending_approve').length
+  function isHeadApproved(item) {
+    return !!item.head_approved_at
+  }
+
+  function isVisibleToAccounting(item) {
+    if (item._type === 'payment') {
+      return item.status === 'approved' || isHeadApproved(item)
+    }
+    return isHeadApproved(item)
+  }
+
+  const accountingItems = byProject.filter(isVisibleToAccounting)
+  const pendingApproveCount = accountingItems.filter(it => it._type === 'payment' && it.status === 'pending_approve').length
   function canReviewPayment(pmt) {
+    if (!pmt.head_approved_at) return false
     const invoice = pmt.invoices
     if (!invoice) return false
     if (invoice.status === 'paid_pending_approve') return true
     return ['pending', 'overdue'].includes(invoice.status) && Number(invoice.total_amount ?? 0) <= 0
   }
-  const pendingList  = byProject.filter(it => !isRecorded(it))
-  const recordedList = byProject.filter(it => isRecorded(it))
+  const pendingList  = accountingItems.filter(it => !isRecorded(it))
+  const recordedList = accountingItems.filter(it => isRecorded(it))
 
   // Count settlements needing accounting action
-  const actionableSettlements = filteredSettlements.filter(s =>
-    s.status === 'paid_by_staff' ||
+  const actionableSettlements = visibleSettlements.filter(s =>
+    (s.status === 'paid_by_staff' && s.head_approved_at) ||
     s.status === 'processing' ||
     (s.status === 'pending' && s.direction === 'refund_to_tenant')
   )
@@ -763,7 +780,7 @@ export default function PaymentsPage() {
       {section === 'move_outs' && (
         <>
           <p className="mb-4 text-sm text-gray-500">
-            {filteredSettlements.length} รายการ
+            {visibleSettlements.length} รายการ
             {actionableSettlements.length > 0 && (
               <span className="ml-2 rounded-full bg-amber-100 px-2 py-0.5 text-xs text-amber-700">
                 {actionableSettlements.length} รอดำเนินการ
@@ -771,14 +788,14 @@ export default function PaymentsPage() {
             )}
           </p>
 
-          {filteredSettlements.length === 0 ? (
+          {visibleSettlements.length === 0 ? (
             <EmptyState icon={LogOut} title="ไม่มีรายการย้ายออกที่รอดำเนินการ" />
           ) : (
             <div className="flex flex-col gap-2">
-              {filteredSettlements.map(s => {
+              {visibleSettlements.map(s => {
                 const mo = s.move_outs
                 const isActionable = canApprove && (
-                  s.status === 'paid_by_staff' ||
+                  (s.status === 'paid_by_staff' && s.head_approved_at) ||
                   s.status === 'processing' ||
                   (s.status === 'pending' && s.direction === 'refund_to_tenant')
                 )

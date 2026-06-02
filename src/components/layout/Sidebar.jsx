@@ -44,16 +44,40 @@ export default function Sidebar({ collapsed, mobileOpen, onMobileClose }) {
   const { role } = useAuth()
   const canManageUserAccounts = canManageUsers(role)
   const canManageAppSettings = canManageSettings(role)
-  const canApprove = ['super_admin', 'executive'].includes(role)
+  const canApprove = ['super_admin', 'executive', 'head_staff'].includes(role)
   const isService = role === 'service'
   const [pendingCount, setPendingCount] = useState(0)
 
   useEffect(() => {
     if (!canApprove) return
-    supabase.from('contracts').select('id', { count: 'exact', head: true })
-      .eq('status', 'pending_approve')
-      .then(({ count }) => setPendingCount(count ?? 0))
-  }, [canApprove])
+    async function fetchPendingCount() {
+      const queries = []
+      if (['super_admin', 'executive'].includes(role)) {
+        queries.push(
+          supabase.from('contracts').select('id', { count: 'exact', head: true }).eq('status', 'pending_approve')
+        )
+      }
+      if (['super_admin', 'head_staff'].includes(role)) {
+        queries.push(
+          supabase.from('payments').select('id', { count: 'exact', head: true })
+            .eq('status', 'pending_approve').is('head_approved_at', null).is('head_rejected_at', null),
+          supabase.from('rent_advance_payments').select('id', { count: 'exact', head: true })
+            .is('head_approved_at', null).is('head_rejected_at', null),
+          supabase.from('bookings').select('id', { count: 'exact', head: true })
+            .not('slip_url', 'is', null).is('head_approved_at', null).is('head_rejected_at', null),
+          supabase.from('receipts').select('id', { count: 'exact', head: true })
+            .eq('status', 'pending').is('head_approved_at', null).is('head_rejected_at', null),
+          supabase.from('settlements').select('id', { count: 'exact', head: true })
+            .eq('status', 'paid_by_staff').is('head_approved_at', null).is('head_rejected_at', null),
+          supabase.from('move_outs').select('id', { count: 'exact', head: true })
+            .eq('status', 'pending_accounting'),
+        )
+      }
+      const results = await Promise.all(queries)
+      setPendingCount(results.reduce((sum, r) => sum + (r.count ?? 0), 0))
+    }
+    fetchPendingCount()
+  }, [canApprove, role])
 
   return (
     <aside

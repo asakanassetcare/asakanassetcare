@@ -297,6 +297,10 @@ export default function MoveOutDetailPage() {
 
   async function handleConfirmWithSlip(e) {
     e.preventDefault()
+    if (settlement.status === 'paid_by_staff' && !settlement.head_approved_at) {
+      setConfirmSlipErr('ต้องให้ Head Staff อนุมัติรายการรับชำระนี้ก่อนส่งต่อบัญชี')
+      return
+    }
     const needSlip = settlement.direction === 'refund_to_tenant' && Number(settlement.amount) > 0
     if (needSlip && !confirmSlipFile) { setConfirmSlipErr('กรุณาแนบสลิปการโอนเงิน'); return }
     setConfirmSlipLoading(true); setConfirmSlipErr('')
@@ -650,7 +654,7 @@ export default function MoveOutDetailPage() {
               )}
 
               {/* Accounting: confirm charge (paid_by_staff) or zero */}
-              {isAccounting && settlement.status === 'paid_by_staff' && (
+              {isAccounting && settlement.status === 'paid_by_staff' && settlement.head_approved_at && (
                 <Button size="sm" icon={<Upload className="h-3.5 w-3.5" />}
                   onClick={() => { setConfirmSlipFile(null); setConfirmBankRef(''); setConfirmNote(''); setConfirmSlipErr(''); setConfirmSlipModal(true) }}>
                   ยืนยันรับชำระแล้ว

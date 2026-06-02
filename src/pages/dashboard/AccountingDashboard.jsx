@@ -34,7 +34,7 @@ export default function AccountingDashboard() {
       supabase.from('payments').select(`
         id, amount, paid_date,
         invoices(invoice_number, rooms(room_number, buildings(name)), tenants(full_name))
-      `).eq('status', 'pending_approve').order('created_at', { ascending: true }),
+      `).eq('status', 'pending_approve').not('head_approved_at', 'is', null).order('created_at', { ascending: true }),
 
       supabase.from('invoices').select(`
         id, invoice_number, total_amount, due_date,
@@ -42,9 +42,9 @@ export default function AccountingDashboard() {
       `).or(`status.eq.overdue,and(status.eq.pending,due_date.lte.${overdueCutoff})`).order('due_date').limit(10),
 
       supabase.from('settlements').select(`
-        id, amount, direction, status,
+        id, amount, direction, status, head_approved_at,
         move_outs(id, move_out_number, settlement_deadline, rooms(room_number, buildings(name)), tenants(full_name))
-      `).in('status', ['pending', 'paid_by_staff']).order('created_at', { ascending: true }),
+      `).in('status', ['pending', 'processing', 'paid_by_staff']).order('created_at', { ascending: true }),
 
       supabase.from('payments').select('amount')
         .eq('status', 'approved')
@@ -60,12 +60,17 @@ export default function AccountingDashboard() {
 
       supabase.from('settlements')
         .select('id', { count: 'exact', head: true })
-        .eq('status', 'paid_by_staff'),
+        .eq('status', 'paid_by_staff')
+        .not('head_approved_at', 'is', null),
     ])
 
     setPendingPayments(payments.data ?? [])
     setOverdueInvoices(overdue.data ?? [])
-    setPendingSettlements(settlements.data ?? [])
+    setPendingSettlements((settlements.data ?? []).filter(s =>
+      s.status === 'pending' ||
+      s.status === 'processing' ||
+      (s.status === 'paid_by_staff' && s.head_approved_at)
+    ))
     setUnrecordedPayments(unrecorded.count ?? 0)
     setMoveOutsToRecord(draftMO.count ?? 0)
     setIncomeThisMonth((income.data ?? []).reduce((s, p) => s + Number(p.amount), 0))
