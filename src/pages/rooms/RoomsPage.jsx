@@ -68,26 +68,31 @@ export default function RoomsPage() {
     const roomList = rms ?? []
     const roomIds  = roomList.map(r => r.id)
 
-    // Current tenant comes from the active contract.
+    // Current tenant comes from the current contract. Approved contracts reserve
+    // the room until move-in; active contracts mean the tenant has moved in.
     let contractTenantMap = {}
     let contractRentMap = {}
-    let activeContracts = []
+    let currentContractMap = {}
+    let currentContracts = []
     if (roomIds.length > 0) {
       const { data: cts } = await supabase
         .from('contracts')
-        .select('id, room_id, monthly_rent, checklist_in_url, tenants(id, full_name, phone, line_user_id)')
+        .select('id, room_id, status, monthly_rent, checklist_in_url, tenants(id, full_name, phone, line_user_id)')
         .in('room_id', roomIds)
-        .eq('status', 'active')
+        .in('status', ['pending_approve', 'approved', 'active'])
+        .is('actual_move_out_at', null)
+        .order('created_at', { ascending: false })
 
-      activeContracts = cts ?? []
-      for (const ct of activeContracts) {
+      currentContracts = cts ?? []
+      for (const ct of currentContracts) {
+        if (ct.room_id && !currentContractMap[ct.room_id]) currentContractMap[ct.room_id] = ct
         if (ct.room_id && ct.tenants) contractTenantMap[ct.room_id] = ct.tenants
         if (ct.room_id) contractRentMap[ct.room_id] = ct.monthly_rent
       }
 
       // doc completeness check
-      const tenantIds   = activeContracts.map(ct => ct.tenants?.id).filter(Boolean)
-      const contractIds = activeContracts.map(ct => ct.id).filter(Boolean)
+      const tenantIds   = currentContracts.map(ct => ct.tenants?.id).filter(Boolean)
+      const contractIds = currentContracts.map(ct => ct.id).filter(Boolean)
 
       const [{ data: idCardDocs }, { data: contractPdfDocs }] = await Promise.all([
         tenantIds.length > 0
@@ -107,7 +112,7 @@ export default function RoomsPage() {
       const tenantHasIdCard  = new Set((idCardDocs ?? []).map(d => d.ref_id))
       const contractHasPdf   = new Set((contractPdfDocs ?? []).map(d => d.ref_id))
 
-      for (const ct of activeContracts) {
+      for (const ct of currentContracts) {
         if (!ct.room_id) continue
         const incomplete =
           !tenantHasIdCard.has(ct.tenants?.id) ||
@@ -120,7 +125,7 @@ export default function RoomsPage() {
 
     // Active move-outs. A settled future move-out still needs to be shown.
     const todayStr = localDateString()
-    const activeContractIds = activeContracts.map(ct => ct.id)
+    const activeContractIds = currentContracts.filter(ct => ct.status === 'active').map(ct => ct.id)
     const { data: moveOuts } = activeContractIds.length > 0
       ? await supabase
         .from('move_outs')
@@ -159,10 +164,15 @@ export default function RoomsPage() {
 
     const merged = roomList.map(r => {
       const booking = bookingByRoom[r.id] ?? null
+      const currentContract = currentContractMap[r.id] ?? null
       // If there is no active booking/contract, do not let a stale reserved room stay stuck.
-      const derivedStatus = booking
-        ? (r.status === 'available' ? 'reserved' : r.status)
-        : (r.status === 'reserved' && !contractTenantMap[r.id] ? 'available' : r.status)
+      const derivedStatus = currentContract?.status === 'active'
+        ? 'occupied'
+        : currentContract
+          ? 'reserved'
+          : booking
+            ? (r.status === 'available' ? 'reserved' : r.status)
+            : (r.status === 'reserved' ? 'available' : r.status)
       return {
         ...r,
         status:        derivedStatus,
