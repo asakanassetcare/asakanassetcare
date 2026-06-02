@@ -186,7 +186,7 @@ export default function PaymentsPage() {
   }
 
   async function handleApprove(pmt) {
-    if (pmt.invoices?.status !== 'paid_pending_approve') {
+    if (!canReviewPayment(pmt)) {
       alert('อนุมัติไม่ได้ เพราะใบแจ้งหนี้ไม่ได้อยู่สถานะรอยืนยันชำระ')
       fetchAll()
       return
@@ -431,6 +431,12 @@ export default function PaymentsPage() {
 
   const pendingLineSlips = lineSlips.filter(s => s.status === 'pending')
   const pendingApproveCount = byProject.filter(it => it._type === 'payment' && it.status === 'pending_approve').length
+  function canReviewPayment(pmt) {
+    const invoice = pmt.invoices
+    if (!invoice) return false
+    if (invoice.status === 'paid_pending_approve') return true
+    return ['pending', 'overdue'].includes(invoice.status) && Number(invoice.total_amount ?? 0) <= 0
+  }
   const pendingList  = byProject.filter(it => !isRecorded(it))
   const recordedList = byProject.filter(it => isRecorded(it))
 
@@ -645,7 +651,7 @@ export default function PaymentsPage() {
                       {item._type === 'payment' && <Badge variant={item.status} />}
                       {canApprove && item._type === 'payment' && item.status === 'pending_approve' && (
                         <>
-                          {item.invoices?.status === 'paid_pending_approve' && (
+                          {canReviewPayment(item) && (
                             <Button size="sm" icon={<CheckCircle className="h-3.5 w-3.5" />}
                               loading={actionLoading === item.id}
                               onClick={e => { e.stopPropagation(); handleApprove(item) }}>

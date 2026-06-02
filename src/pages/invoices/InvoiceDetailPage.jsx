@@ -173,7 +173,7 @@ export default function InvoiceDetailPage() {
   }
 
   async function handleApprovePayment(pmt) {
-    if (invoice.status !== 'paid_pending_approve') {
+    if (!canReviewInvoicePayment) {
       alert('อนุมัติไม่ได้ เพราะใบแจ้งหนี้ไม่ได้อยู่สถานะรอยืนยันชำระ')
       return
     }
@@ -272,7 +272,6 @@ export default function InvoiceDetailPage() {
   const canPay     = ['pending', 'overdue'].includes(invoice.status) && !hasPendingPayment && ['super_admin', 'head_staff', 'staff'].includes(role)
   const canCancel  = ['pending', 'overdue', 'paid_pending_approve'].includes(invoice.status) && ['super_admin', 'accounting'].includes(role)
   const canApprove = ['super_admin', 'accounting'].includes(role)
-  const canReviewPayment = canApprove && invoice.status === 'paid_pending_approve'
   const approvedPayment = payments
     .filter(p => p.status === 'approved')
     .sort((a, b) => new Date(b.approved_at ?? b.created_at ?? 0) - new Date(a.approved_at ?? a.created_at ?? 0))[0]
@@ -299,6 +298,10 @@ export default function InvoiceDetailPage() {
   const grandTotal  = Number(invoice.total_amount) + netPenalty
   const grossTotal  = items.filter(it => Number(it.amount) > 0).reduce((s, it) => s + Number(it.amount), 0)
   const canDiscount = penalty && ['super_admin', 'head_staff'].includes(role) && ['pending', 'overdue'].includes(invoice.status)
+  const canReviewInvoicePayment = canApprove && hasPendingPayment && (
+    invoice.status === 'paid_pending_approve' ||
+    (['pending', 'overdue'].includes(invoice.status) && grandTotal <= 0)
+  )
 
   return (
     <div>
@@ -530,7 +533,7 @@ export default function InvoiceDetailPage() {
                     <Badge variant={pmt.status} />
                     {canApprove && pmt.status === 'pending_approve' && (
                       <>
-                        {canReviewPayment && (
+                        {canReviewInvoicePayment && (
                           <Button size="sm" icon={<CheckCircle className="h-3.5 w-3.5" />}
                             loading={approvingId === pmt.id}
                             onClick={() => handleApprovePayment(pmt)}>
