@@ -18,6 +18,7 @@ import { PageSpinner } from '../../components/ui/Spinner'
 import { formatThaiDate, formatThaiDateTime } from '../../lib/date'
 import { useSettings } from '../../hooks/useSettings'
 import { THAI_BANKS } from '../../lib/banks'
+import { SLIP_REFERENCE_LABEL, SLIP_REFERENCE_PLACEHOLDER, normalizeSlipReference } from '../../lib/slipReference'
 
 const TYPE_LABEL = {
   contract_initial: 'เงินประกัน + ค่าล่วงหน้า',
@@ -107,7 +108,7 @@ export default function InvoiceDetailPage() {
     setPayForm({
       paid_date:      pre?.paid_date      ?? new Date().toISOString().slice(0, 10),
       bank_name:      pre?.bank_name      ?? '',
-      bank_reference: pre?.bank_reference ?? '',
+      bank_reference: normalizeSlipReference(pre?.bank_reference),
       note:           pre?.note           ?? '',
     })
     setSlipFile(null)
@@ -143,7 +144,7 @@ export default function InvoiceDetailPage() {
       ;({ error } = await supabase.from('payments').update({
         paid_date:      payForm.paid_date,
         bank_name:      payForm.bank_name || null,
-        bank_reference: payForm.bank_reference.trim() || null,
+        bank_reference: normalizeSlipReference(payForm.bank_reference) || null,
         slip_url:       slipUrl,
         note:           payForm.note.trim() || null,
         recorded_by:    profile.id,
@@ -154,7 +155,7 @@ export default function InvoiceDetailPage() {
         amount:         grandTotal,
         paid_date:      payForm.paid_date,
         bank_name:      payForm.bank_name || null,
-        bank_reference: payForm.bank_reference.trim() || null,
+        bank_reference: normalizeSlipReference(payForm.bank_reference) || null,
         slip_url:       slipUrl,
         note:           payForm.note.trim() || null,
         status:         'pending_approve',
@@ -617,9 +618,11 @@ export default function InvoiceDetailPage() {
             <Select label="ธนาคาร" options={THAI_BANKS} placeholder="— เลือกธนาคาร —"
               value={payForm.bank_name}
               onChange={e => setPayForm(p => ({ ...p, bank_name: e.target.value }))} />
-            <Input label="เลขที่โอน" value={payForm.bank_reference}
-              onChange={e => setPayForm(p => ({ ...p, bank_reference: e.target.value }))}
-              placeholder="xxxx-xxxx-xxxx" />
+            <Input label={SLIP_REFERENCE_LABEL} value={payForm.bank_reference}
+              onChange={e => setPayForm(p => ({ ...p, bank_reference: normalizeSlipReference(e.target.value) }))}
+              inputMode="numeric"
+              maxLength={4}
+              placeholder={SLIP_REFERENCE_PLACEHOLDER} />
           </div>
           <div className="flex flex-col gap-1">
             <label className="text-sm font-medium text-gray-700">

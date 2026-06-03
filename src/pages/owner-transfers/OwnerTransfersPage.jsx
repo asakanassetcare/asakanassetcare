@@ -12,6 +12,7 @@ import EmptyState from '../../components/ui/EmptyState'
 import { PageSpinner } from '../../components/ui/Spinner'
 import { formatThaiDate } from '../../lib/date'
 import { ArrowLeftRight } from 'lucide-react'
+import { SLIP_REFERENCE_LABEL, SLIP_REFERENCE_PLACEHOLDER, normalizeSlipReference } from '../../lib/slipReference'
 
 const STATUS_OPTS = [
   { value: '',                    label: 'ทุกสถานะ' },
@@ -141,7 +142,7 @@ export default function OwnerTransfersPage() {
       status:           'transferred_by_staff',
       transferred_by:   profile.id,
       transferred_at:   new Date().toISOString(),
-      bank_reference:   transferForm.bank_reference.trim() || null,
+      bank_reference:   normalizeSlipReference(transferForm.bank_reference) || null,
       slip_url:         slipUrl,
       note:             transferForm.note.trim() || null,
     }).eq('id', transferTarget.id)
@@ -271,8 +272,14 @@ export default function OwnerTransfersPage() {
               )}
             </div>
           )}
-          <Input label="เลขอ้างอิงธนาคาร" value={transferForm.bank_reference}
-            onChange={e => setTransferForm(p => ({ ...p, bank_reference: e.target.value }))} />
+          <Input
+            label={SLIP_REFERENCE_LABEL}
+            value={transferForm.bank_reference}
+            onChange={e => setTransferForm(p => ({ ...p, bank_reference: normalizeSlipReference(e.target.value) }))}
+            inputMode="numeric"
+            maxLength={4}
+            placeholder={SLIP_REFERENCE_PLACEHOLDER}
+          />
           <div className="flex flex-col gap-1">
             <label className="text-sm font-medium text-gray-700">แนบสลิป</label>
             <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-gray-300 px-4 py-3 hover:border-blue-400 transition-colors">

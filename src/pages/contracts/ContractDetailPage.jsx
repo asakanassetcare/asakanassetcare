@@ -20,6 +20,7 @@ import ReceiptPDF from '../../components/pdf/ReceiptPDF'
 import { formatThaiDate, formatThaiDateTime } from '../../lib/date'
 import { useSettings } from '../../hooks/useSettings'
 import { THAI_BANKS } from '../../lib/banks'
+import { SLIP_REFERENCE_LABEL, SLIP_REFERENCE_PLACEHOLDER, normalizeSlipReference } from '../../lib/slipReference'
 
 const TABS = [
   { id: 'info',      label: 'ข้อมูล' },
@@ -460,7 +461,7 @@ export default function ContractDetailPage() {
       paid_amount:           paidAmount,
       slip_url:              sd.path,
       bank_name:             raBankName,
-      bank_reference:        raBankRef.trim() || null,
+      bank_reference:        normalizeSlipReference(raBankRef) || null,
       note:                  raNote.trim()    || null,
       created_by:            profile.id,
     }).select('id, advance_number, months_count, monthly_rent_snapshot, paid_amount, remaining_amount, bank_name, bank_reference, slip_url, note, status, created_at, head_approved_at, head_rejected_at').single()
@@ -1509,12 +1510,14 @@ export default function ContractDetailPage() {
           </div>
 
           <div className="flex flex-col gap-1">
-            <label className="text-sm font-medium text-gray-700">เลขอ้างอิง / ธุรกรรม</label>
+            <label className="text-sm font-medium text-gray-700">{SLIP_REFERENCE_LABEL}</label>
             <input
               type="text"
               value={raBankRef}
-              onChange={e => setRaBankRef(e.target.value)}
-              placeholder="เช่น 20260525001234"
+              onChange={e => setRaBankRef(normalizeSlipReference(e.target.value))}
+              inputMode="numeric"
+              maxLength={4}
+              placeholder={SLIP_REFERENCE_PLACEHOLDER}
               className="h-9 w-full rounded-lg border border-gray-300 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>

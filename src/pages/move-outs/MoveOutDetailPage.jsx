@@ -15,6 +15,7 @@ import MoveOutPDF from '../../components/pdf/MoveOutPDF'
 import { PageSpinner } from '../../components/ui/Spinner'
 import { formatThaiDate, formatThaiDateTime } from '../../lib/date'
 import { useSettings } from '../../hooks/useSettings'
+import { SLIP_REFERENCE_LABEL, SLIP_REFERENCE_PLACEHOLDER, normalizeSlipReference } from '../../lib/slipReference'
 
 export default function MoveOutDetailPage() {
   const { moveOutId } = useParams()
@@ -287,7 +288,7 @@ export default function MoveOutDetailPage() {
       p_settlement_id: settlement.id,
       p_slip_url:      sd.path,
       p_bank_name:     payBankName || null,
-      p_bank_ref:      bankRef.trim() || null,
+      p_bank_ref:      normalizeSlipReference(bankRef) || null,
       p_note:          payNote.trim() || null,
     })
     setPaying(false)
@@ -318,7 +319,7 @@ export default function MoveOutDetailPage() {
     const { error } = await supabase.rpc('confirm_settlement_completed', {
       p_settlement_id: settlement.id,
       p_slip_url:      slipUrl,
-      p_bank_ref:      confirmBankRef.trim() || null,
+      p_bank_ref:      normalizeSlipReference(confirmBankRef) || null,
       p_note:          confirmNote.trim() || null,
     })
     setConfirmSlipLoading(false)
@@ -961,7 +962,14 @@ export default function MoveOutDetailPage() {
                   }} className="mt-2 text-xs text-blue-600 hover:underline">ดูสมุดบัญชีผู้เช่า</button>
                 )}
               </div>
-              <Input label="เลขอ้างอิงธนาคาร" value={confirmBankRef} onChange={e => setConfirmBankRef(e.target.value)} />
+              <Input
+                label={SLIP_REFERENCE_LABEL}
+                value={confirmBankRef}
+                onChange={e => setConfirmBankRef(normalizeSlipReference(e.target.value))}
+                inputMode="numeric"
+                maxLength={4}
+                placeholder={SLIP_REFERENCE_PLACEHOLDER}
+              />
               <div className="flex flex-col gap-1">
                 <label className="text-sm font-medium text-gray-700">
                   แนบสลิปการโอน{Number(settlement?.amount) > 0 && <span className="text-red-500"> *</span>}
@@ -1121,8 +1129,14 @@ export default function MoveOutDetailPage() {
               {THAI_BANKS.map(b => <option key={b} value={b}>{b}</option>)}
             </select>
           </div>
-          <Input label="เลขอ้างอิงธนาคาร" value={bankRef}
-            onChange={e => setBankRef(e.target.value)} />
+          <Input
+            label={SLIP_REFERENCE_LABEL}
+            value={bankRef}
+            onChange={e => setBankRef(normalizeSlipReference(e.target.value))}
+            inputMode="numeric"
+            maxLength={4}
+            placeholder={SLIP_REFERENCE_PLACEHOLDER}
+          />
           <div className="flex flex-col gap-1">
             <label className="text-sm font-medium text-gray-700">
               แนบสลิป <span className="text-red-500">*</span>

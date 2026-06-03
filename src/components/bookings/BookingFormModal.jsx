@@ -9,6 +9,7 @@ import Select from '../ui/Select'
 import Textarea from '../ui/Textarea'
 import TenantSelect from '../shared/TenantSelect'
 import { THAI_BANKS } from '../../lib/banks'
+import { SLIP_REFERENCE_LABEL, SLIP_REFERENCE_PLACEHOLDER, normalizeSlipReference } from '../../lib/slipReference'
 
 function localDateString(date = new Date()) {
   return [
@@ -122,7 +123,7 @@ export default function BookingFormModal({ open, onClose, onSaved, prefillRoomId
       slip_url:            sd.path,
       paid_date:           form.paid_date,
       bank_name:           form.bank_name || null,
-      bank_reference:      form.bank_reference.trim() || null,
+      bank_reference:      normalizeSlipReference(form.bank_reference) || null,
       payment_recorded_by: profile.id,
       payment_recorded_at: new Date().toISOString(),
     })
@@ -203,10 +204,12 @@ export default function BookingFormModal({ open, onClose, onSaved, prefillRoomId
               onChange={e => set('bank_name', e.target.value)}
             />
             <Input
-              label="เลขที่โอน"
+              label={SLIP_REFERENCE_LABEL}
               value={form.bank_reference}
-              onChange={e => set('bank_reference', e.target.value)}
-              placeholder="xxxx-xxxx-xxxx"
+              onChange={e => set('bank_reference', normalizeSlipReference(e.target.value))}
+              inputMode="numeric"
+              maxLength={4}
+              placeholder={SLIP_REFERENCE_PLACEHOLDER}
             />
           </div>
           <div className="flex flex-col gap-1">

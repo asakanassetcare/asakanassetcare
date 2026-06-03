@@ -18,6 +18,7 @@ import ContractFormModal from '../../components/contracts/ContractFormModal'
 import PdfDownloadButton from '../../components/pdf/PdfDownloadButton'
 import BookingReceiptPDF from '../../components/pdf/BookingReceiptPDF'
 import { THAI_BANKS } from '../../lib/banks'
+import { SLIP_REFERENCE_LABEL, SLIP_REFERENCE_PLACEHOLDER, normalizeSlipReference } from '../../lib/slipReference'
 
 const DEPOSIT_ACTION_OPTS = [
   { value: 'refunded', label: 'คืนเงินจองให้ผู้เช่า' },
@@ -123,7 +124,7 @@ export default function BookingDetailPage() {
     setPayForm({
       paid_date:      new Date().toISOString().slice(0, 10),
       bank_name:      booking.bank_name      ?? '',
-      bank_reference: booking.bank_reference ?? '',
+      bank_reference: normalizeSlipReference(booking.bank_reference),
     })
     setSlipFile(null)
     setPayError('')
@@ -150,7 +151,7 @@ export default function BookingDetailPage() {
       slip_url:             slipUrl,
       paid_date:            payForm.paid_date,
       bank_name:            payForm.bank_name || null,
-      bank_reference:       payForm.bank_reference.trim() || null,
+      bank_reference:       normalizeSlipReference(payForm.bank_reference) || null,
       payment_recorded_by:  profile.id,
       payment_recorded_at:  new Date().toISOString(),
     }).eq('id', bookingId)
@@ -442,10 +443,12 @@ export default function BookingDetailPage() {
               onChange={e => setPayForm(p => ({ ...p, bank_name: e.target.value }))}
             />
             <Input
-              label="เลขที่อ้างอิง"
+              label={SLIP_REFERENCE_LABEL}
               value={payForm.bank_reference}
-              onChange={e => setPayForm(p => ({ ...p, bank_reference: e.target.value }))}
-              placeholder="xxxx-xxxx-xxxx"
+              onChange={e => setPayForm(p => ({ ...p, bank_reference: normalizeSlipReference(e.target.value) }))}
+              inputMode="numeric"
+              maxLength={4}
+              placeholder={SLIP_REFERENCE_PLACEHOLDER}
             />
           </div>
           <div className="flex flex-col gap-1">

@@ -16,6 +16,7 @@ import EmptyState from '../../components/ui/EmptyState'
 import { PageSpinner } from '../../components/ui/Spinner'
 import { formatThaiDate, formatThaiDateTime } from '../../lib/date'
 import { CreditCard, LogOut } from 'lucide-react'
+import { SLIP_REFERENCE_LABEL, SLIP_REFERENCE_PLACEHOLDER, normalizeSlipReference } from '../../lib/slipReference'
 
 function SlipThumb({ path }) {
   const [url, setUrl] = useState(null)
@@ -384,7 +385,7 @@ export default function PaymentsPage() {
     const { error } = await supabase.rpc('confirm_settlement_completed', {
       p_settlement_id: confirmStlModal.id,
       p_slip_url:      slipUrl,
-      p_bank_ref:      confirmBankRef.trim() || null,
+      p_bank_ref:      normalizeSlipReference(confirmBankRef) || null,
       p_note:          confirmNote.trim() || null,
     })
     setConfirmStlLoading(false)
@@ -1038,11 +1039,13 @@ export default function PaymentsPage() {
             />
           </div>
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-gray-700">เลขอ้างอิงธนาคาร</label>
+            <label className="mb-1.5 block text-sm font-medium text-gray-700">{SLIP_REFERENCE_LABEL}</label>
             <input
               value={confirmBankRef}
-              onChange={e => setConfirmBankRef(e.target.value)}
-              placeholder="ถ้ามี"
+              onChange={e => setConfirmBankRef(normalizeSlipReference(e.target.value))}
+              inputMode="numeric"
+              maxLength={4}
+              placeholder={SLIP_REFERENCE_PLACEHOLDER}
               className="h-9 w-full rounded-lg border border-gray-300 px-3 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
