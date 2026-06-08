@@ -85,8 +85,10 @@ const k = (t) => `${t}  `
 export default function ReceiptPDF({ payment, invoice: inv, company = {} }) {
   if (!payment || !inv) return null
 
-  const amt    = Number(payment.amount)
-  const docRef = `RCV-${inv.invoice_number}`
+  const penaltyAmt = Number(payment.penalty_amount ?? 0)
+  const baseAmt    = Number(payment.amount) - penaltyAmt
+  const amt        = Number(payment.amount)
+  const docRef     = `RCV-${inv.invoice_number}`
   const room   = inv.rooms
   const bldg   = room?.buildings
   const typeLabel = TYPE_LABEL[inv.invoice_type] ?? inv.invoice_type ?? 'ค่าเช่า'
@@ -131,6 +133,10 @@ export default function ReceiptPDF({ payment, invoice: inv, company = {} }) {
             <View style={S.metaRow}>
               <Text style={S.metaLbl}>{k('วันที่ชำระ')}</Text>
               <Text style={S.metaVal}>{k(thaiDate(payment.paid_date))}</Text>
+            </View>
+            <View style={S.metaRow}>
+              <Text style={S.metaLbl}>{k('วันออกเอกสาร')}</Text>
+              <Text style={S.metaVal}>{k(thaiDate(payment.approved_at))}</Text>
             </View>
             <View style={S.metaRowLast}>
               <Text style={S.metaLbl}>{k('อ้างอิงธนาคาร')}</Text>
@@ -179,9 +185,22 @@ export default function ReceiptPDF({ payment, invoice: inv, company = {} }) {
               {payment.note && <Text style={S.tdSub}>{payment.note}</Text>}
             </View>
             <Text style={[S.cQty,  S.tdTxt]}>1</Text>
-            <Text style={[S.cPrice,S.tdTxt]}>{baht(amt)}</Text>
-            <Text style={[S.cAmt,  S.tdTxt, { fontWeight: 700 }]}>{baht(amt)}</Text>
+            <Text style={[S.cPrice,S.tdTxt]}>{baht(baseAmt)}</Text>
+            <Text style={[S.cAmt,  S.tdTxt, { fontWeight: 700 }]}>{baht(baseAmt)}</Text>
           </View>
+
+          {penaltyAmt > 0 && (
+            <View style={S.tblRow}>
+              <Text style={[S.cNo, S.tdTxt]}>2</Text>
+              <View style={S.cDesc}>
+                <Text style={[S.tdTxt, { fontWeight: 700 }]}>{k('ค่าปรับชำระล่าช้า')}</Text>
+                <Text style={S.tdSub}>{k(`${payment.penalty_days ?? 0} วัน`)}</Text>
+              </View>
+              <Text style={[S.cQty,  S.tdTxt]}>1</Text>
+              <Text style={[S.cPrice,S.tdTxt]}>{baht(penaltyAmt)}</Text>
+              <Text style={[S.cAmt,  S.tdTxt, { fontWeight: 700 }]}>{baht(penaltyAmt)}</Text>
+            </View>
+          )}
         </View>
 
         {/* Totals */}

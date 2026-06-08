@@ -140,7 +140,7 @@ export default function InvoiceDetailPage() {
     const existingReviewable = payments.find(p => p.status === 'pending_approve')
     let error
     if (existingReviewable) {
-      // Update the existing review row.
+      // Update the existing review row — recalculate penalty for the new paid_date.
       ;({ error } = await supabase.from('payments').update({
         paid_date:      payForm.paid_date,
         bank_name:      payForm.bank_name || null,
@@ -148,6 +148,9 @@ export default function InvoiceDetailPage() {
         slip_url:       slipUrl,
         note:           payForm.note.trim() || null,
         recorded_by:    profile.id,
+        amount:         grandTotal,
+        penalty_amount: netPenalty,
+        penalty_days:   penalty?.days ?? 0,
       }).eq('id', existingReviewable.id))
     } else {
       ;({ error } = await supabase.from('payments').insert({
@@ -160,6 +163,8 @@ export default function InvoiceDetailPage() {
         note:           payForm.note.trim() || null,
         status:         'pending_approve',
         recorded_by:    profile.id,
+        penalty_amount: netPenalty,
+        penalty_days:   penalty?.days ?? 0,
       }))
     }
 
@@ -307,25 +312,27 @@ export default function InvoiceDetailPage() {
     return d.toISOString().slice(0, 10)
   }
 
-  // Penalty starts after the 5-day grace window. Paid/reviewing invoices must
-  // not keep accumulating penalty after payment has been recorded.
-  function calcPenalty() {
+  // Penalty starts after the 5-day grace window.
+  // asOfDate defaults to today but callers pass payForm.paid_date so the
+  // amount shown matches what will be snapshotted when the slip is submitted.
+  function calcPenalty(asOfDate) {
     if (invoice.invoice_type !== 'monthly_rent') return null
     if (!invoice.due_date) return null
     if (!['pending', 'overdue'].includes(invoice.status)) return null
     const ratePerDay = Number(settings?.invoice?.penalty_rate_per_day ?? 100)
     const d = new Date()
-    const today = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+    const fallback = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`
+    const endStr = asOfDate ?? fallback
     const graceEndStr = addDays(invoice.due_date, 4)
-    if (today <= graceEndStr) return null
+    if (endStr <= graceEndStr) return null
     const startStr = addDays(graceEndStr, 1)
     const startD = new Date(startStr + 'T00:00:00Z')
-    const endD = new Date(today + 'T00:00:00Z')
+    const endD = new Date(endStr + 'T00:00:00Z')
     const days = Math.floor((endD - startD) / 86400000) + 1
-    return { days, startStr, endStr: today, graceEndStr, amount: days * ratePerDay, ratePerDay }
+    return { days, startStr, endStr, graceEndStr, amount: days * ratePerDay, ratePerDay }
   }
 
-  const penalty     = calcPenalty()
+  const penalty     = calcPenalty(payModal ? payForm.paid_date : undefined)
   const discount    = Math.min(Number(invoice.penalty_discount ?? 0), penalty?.amount ?? 0)
   const netPenalty  = (penalty?.amount ?? 0) - discount
   const grandTotal  = Number(invoice.total_amount) + netPenalty

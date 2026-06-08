@@ -75,6 +75,7 @@ export default function DocumentsPage() {
       // Source 1: approved invoice payments
       supabase.from('payments').select(`
         id, amount, paid_date, bank_name, bank_reference, note, approved_at,
+        penalty_amount, penalty_days,
         invoices(
           id, invoice_number, invoice_type, billing_period, total_amount,
           rooms(room_number, buildings(name)),
