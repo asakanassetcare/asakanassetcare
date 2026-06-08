@@ -72,7 +72,7 @@ function Sec({ title, children }) {
   )
 }
 
-function Sig({ role, name, wideName = false }) {
+function Sig({ role, name, wideName = false, smallName = false }) {
   const nameInner = name || (wideName
     ? <span className="inline-block w-[150px] border-b border-dotted border-slate-600">&#8203;</span>
     : DS)
@@ -87,7 +87,7 @@ function Sig({ role, name, wideName = false }) {
           </tr>
           <tr>
             <td />
-            <td className="text-center align-top">({nameInner})</td>
+            <td className={`text-center align-top${smallName ? ' whitespace-nowrap' : ''}`}>({nameInner})</td>
             <td />
           </tr>
         </tbody>
@@ -393,7 +393,7 @@ export default function ContractPrintPage() {
           สัญญานี้ทำขึ้นเป็นสองฉบับ มีข้อความถูกต้องตรงกัน คู่สัญญาทั้งสองฝ่ายได้อ่านและเข้าใจข้อความในสัญญานี้โดยตลอดแล้ว เห็นว่าถูกต้องตรงตามเจตนา จึงได้ลงลายมือชื่อไว้เป็นสำคัญต่อหน้าพยาน และคู่สัญญาต่างยึดถือไว้ฝ่ายละหนึ่งฉบับ
         </p>
         <div className="grid grid-cols-2 gap-x-8">
-          <Sig role="ผู้ให้เช่า" name="นางสาว ภัสสรมณฑ์ สิริณลญากรณ์" />
+          <Sig role="ผู้ให้เช่า" name="นางสาว ภัสสรมณฑ์ สิริณลญากรณ์" smallName />
           <Sig role="ผู้เช่า" name={tName} />
           <Sig role="พยาน" wideName />
           <Sig role="พยาน" wideName />
