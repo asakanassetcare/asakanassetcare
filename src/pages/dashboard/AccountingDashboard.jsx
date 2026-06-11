@@ -102,7 +102,9 @@ export default function AccountingDashboard() {
     i => i.move_outs?.tenants?.full_name,
   ])
 
-  const hasItems   = pendingPayments.length > 0 || overdueInvoices.length > 0 || pendingSettlements.length > 0
+  const hasRecordingItems = unrecordedPayments > 0 || moveOutsToRecord > 0
+  const hasDetailedItems  = pendingPayments.length > 0 || overdueInvoices.length > 0 || pendingSettlements.length > 0
+  const hasItems          = hasRecordingItems || hasDetailedItems
   const hasResults = filteredPayments.length > 0 || filteredOverdue.length > 0 || filteredSettlements.length > 0
 
   return (
@@ -155,7 +157,7 @@ export default function AccountingDashboard() {
       </div>
 
       {/* Search */}
-      {hasItems && (
+      {hasDetailedItems && (
         <div className="relative mb-5">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
           <input
@@ -257,7 +259,7 @@ export default function AccountingDashboard() {
         </Section>
       )}
 
-      {hasItems && !hasResults && (
+      {hasDetailedItems && !hasResults && (
         <p className="mt-8 text-center text-sm text-gray-400">ไม่พบรายการที่ตรงกับ "{search}"</p>
       )}
 
