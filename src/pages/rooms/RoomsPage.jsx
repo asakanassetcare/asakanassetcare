@@ -65,7 +65,7 @@ export default function RoomsPage() {
       supabase.from('room_types').select('id, name').order('name'),
     ])
 
-    const roomList = rms ?? []
+    const roomList = (rms ?? []).filter(r => r.is_rentable !== false)
     const roomIds  = roomList.map(r => r.id)
 
     // Current tenant comes from the current contract. Approved contracts reserve

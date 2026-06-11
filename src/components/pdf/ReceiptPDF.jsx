@@ -5,6 +5,18 @@ registerFonts()
 
 const S = StyleSheet.create({
   page:       { fontFamily: 'Sarabun', fontSize: 10, color: '#111827', padding: '44 50 38 50' },
+  watermark:  {
+    position: 'absolute',
+    top: 360,
+    left: 30,
+    width: 540,
+    textAlign: 'center',
+    fontSize: 52,
+    fontWeight: 700,
+    color: '#64748b',
+    opacity: 0.12,
+    transform: 'rotate(-30deg)',
+  },
 
   header:     { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 },
   companyCol: { flex: 1, paddingRight: 28 },
@@ -246,6 +258,8 @@ export default function ReceiptPDF({ payment, invoice: inv, company = {} }) {
             {company.email ? `  ·  ${company.email}` : ''}
           </Text>
         </View>
+
+        <Text fixed style={S.watermark}>Asakan AssetCare</Text>
 
       </Page>
     </Document>
