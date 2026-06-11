@@ -15,8 +15,8 @@ export default function AccountingDashboard() {
   const [pendingPayments,  setPendingPayments]  = useState([])
   const [overdueInvoices,  setOverdueInvoices]  = useState([])
   const [pendingSettlements, setPendingSettlements] = useState([])
-  const [unrecordedPayments,  setUnrecordedPayments]  = useState(0)
-  const [moveOutsToRecord,    setMoveOutsToRecord]    = useState(0)
+  const [unrecordedPayments,  setUnrecordedPayments]  = useState([])
+  const [moveOutsToRecord,    setMoveOutsToRecord]    = useState([])
   const [incomeThisMonth,  setIncomeThisMonth]  = useState(0)
   const [pendingIncome,    setPendingIncome]    = useState(0)
   const [search, setSearch] = useState('')
@@ -54,14 +54,24 @@ export default function AccountingDashboard() {
         .in('status', ['pending', 'overdue']),
 
       supabase.from('payments')
-        .select('id', { count: 'exact', head: true })
+        .select(`
+          id, amount, paid_date,
+          invoices(invoice_number, rooms(room_number, buildings(name)), tenants(full_name))
+        `)
         .eq('status', 'approved')
-        .is('accounting_recorded_at', null),
+        .is('accounting_recorded_at', null)
+        .order('approved_at', { ascending: true })
+        .limit(10),
 
       supabase.from('settlements')
-        .select('id', { count: 'exact', head: true })
+        .select(`
+          id, amount, direction, status, head_approved_at,
+          move_outs(id, move_out_number, settlement_deadline, rooms(room_number, buildings(name)), tenants(full_name))
+        `)
         .eq('status', 'paid_by_staff')
-        .not('head_approved_at', 'is', null),
+        .not('head_approved_at', 'is', null)
+        .order('updated_at', { ascending: true })
+        .limit(10),
     ])
 
     setPendingPayments(payments.data ?? [])
@@ -71,8 +81,8 @@ export default function AccountingDashboard() {
       s.status === 'processing' ||
       (s.status === 'paid_by_staff' && s.head_approved_at)
     ))
-    setUnrecordedPayments(unrecorded.count ?? 0)
-    setMoveOutsToRecord(draftMO.count ?? 0)
+    setUnrecordedPayments(unrecorded.data ?? [])
+    setMoveOutsToRecord(draftMO.data ?? [])
     setIncomeThisMonth((income.data ?? []).reduce((s, p) => s + Number(p.amount), 0))
     setPendingIncome((pending.data ?? []).reduce((s, i) => s + Number(i.total_amount), 0))
     setLoading(false)
@@ -101,11 +111,26 @@ export default function AccountingDashboard() {
     i => i.move_outs?.rooms?.room_number,
     i => i.move_outs?.tenants?.full_name,
   ])
+  const filteredUnrecordedPayments = filterItems(unrecordedPayments, [
+    i => i.invoices?.invoice_number,
+    i => i.invoices?.rooms?.room_number,
+    i => i.invoices?.tenants?.full_name,
+  ])
+  const filteredMoveOutsToRecord = filterItems(moveOutsToRecord, [
+    i => i.move_outs?.move_out_number,
+    i => i.move_outs?.rooms?.room_number,
+    i => i.move_outs?.tenants?.full_name,
+  ])
 
-  const hasRecordingItems = unrecordedPayments > 0 || moveOutsToRecord > 0
+  const hasRecordingItems = unrecordedPayments.length > 0 || moveOutsToRecord.length > 0
   const hasDetailedItems  = pendingPayments.length > 0 || overdueInvoices.length > 0 || pendingSettlements.length > 0
   const hasItems          = hasRecordingItems || hasDetailedItems
-  const hasResults = filteredPayments.length > 0 || filteredOverdue.length > 0 || filteredSettlements.length > 0
+  const hasResults =
+    filteredUnrecordedPayments.length > 0 ||
+    filteredMoveOutsToRecord.length > 0 ||
+    filteredPayments.length > 0 ||
+    filteredOverdue.length > 0 ||
+    filteredSettlements.length > 0
 
   return (
     <div>
@@ -139,9 +164,9 @@ export default function AccountingDashboard() {
       {/* รอบันทึก */}
       <p className="mb-2 text-xs font-medium uppercase tracking-wide text-gray-400">รอบันทึก</p>
       <div className="mb-4 grid grid-cols-2 gap-3">
-        <StatCard icon={FileInput}     label="Payment รอบันทึก"   value={unrecordedPayments} color="blue"
+        <StatCard icon={FileInput}     label="Payment รอบันทึก"   value={unrecordedPayments.length} color="blue"
           onClick={() => navigate('/payments', { state: { section: 'payments',  tab: 'pending' } })} />
-        <StatCard icon={ClipboardList} label="Move-out รอบันทึก"  value={moveOutsToRecord}   color="indigo"
+        <StatCard icon={ClipboardList} label="Move-out รอบันทึก"  value={moveOutsToRecord.length}   color="indigo"
           onClick={() => navigate('/payments', { state: { section: 'move_outs', tab: 'pending' } })} />
       </div>
 
@@ -157,7 +182,7 @@ export default function AccountingDashboard() {
       </div>
 
       {/* Search */}
-      {hasDetailedItems && (
+      {hasItems && (
         <div className="relative mb-5">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
           <input
@@ -172,6 +197,40 @@ export default function AccountingDashboard() {
             </button>
           )}
         </div>
+      )}
+
+      {/* Recording pending */}
+      {filteredUnrecordedPayments.length > 0 && (
+        <Section title="Payment รอบันทึก" count={filteredUnrecordedPayments.length} accent="border-blue-400">
+          {filteredUnrecordedPayments.map(p => (
+            <ItemRow
+              key={p.id}
+              number={p.invoices?.invoice_number ?? '-'}
+              sub={`${p.invoices?.rooms?.buildings?.name ?? '-'} · ห้อง ${p.invoices?.rooms?.room_number ?? '-'} · ${p.invoices?.tenants?.full_name ?? '-'}`}
+              tag={<Tag color="blue">฿{Number(p.amount).toLocaleString('th-TH')}</Tag>}
+              actionLabel="บันทึก"
+              onClick={() => navigate('/payments', { state: { section: 'payments', tab: 'pending' } })}
+            />
+          ))}
+        </Section>
+      )}
+
+      {filteredMoveOutsToRecord.length > 0 && (
+        <Section title="Move-out รอบันทึก" count={filteredMoveOutsToRecord.length} accent="border-indigo-400">
+          {filteredMoveOutsToRecord.map(s => {
+            const mo = s.move_outs
+            return (
+              <ItemRow
+                key={s.id}
+                number={mo?.move_out_number ?? '-'}
+                sub={`${mo?.rooms?.buildings?.name ?? '-'} · ห้อง ${mo?.rooms?.room_number ?? '-'} · ${mo?.tenants?.full_name ?? '-'}`}
+                tag={<Tag color="purple">฿{Number(s.amount).toLocaleString('th-TH')}</Tag>}
+                actionLabel="บันทึก"
+                onClick={() => navigate('/payments', { state: { section: 'move_outs', tab: 'pending' } })}
+              />
+            )
+          })}
+        </Section>
       )}
 
       {/* Payment slip pending */}
@@ -259,7 +318,7 @@ export default function AccountingDashboard() {
         </Section>
       )}
 
-      {hasDetailedItems && !hasResults && (
+      {hasItems && !hasResults && (
         <p className="mt-8 text-center text-sm text-gray-400">ไม่พบรายการที่ตรงกับ "{search}"</p>
       )}
 
