@@ -170,7 +170,7 @@ export default function BookingDetailPage() {
       head_rejected_by:       null,
       head_rejected_at:       null,
       head_rejection_reason:  null,
-    }).eq('id', bookingId)
+    }).eq('id', bookingId).eq('status', 'waiting')
     setManagerApproving(false)
     if (error) {
       alert(error.message)
@@ -237,6 +237,7 @@ export default function BookingDetailPage() {
   const hasPaid   = !!booking.slip_url
   const canManagerApprovePayment =
     ['super_admin', 'head_staff'].includes(role) &&
+    booking.status === 'waiting' &&
     hasPaid &&
     !booking.head_approved_at &&
     !booking.head_rejected_at

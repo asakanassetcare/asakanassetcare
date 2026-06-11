@@ -97,6 +97,7 @@ export default function ApprovalsPage() {
           tenants(full_name),
           payment_recorder:profiles!payment_recorded_by(full_name)
         `)
+        .eq('status', 'waiting')
         .not('slip_url', 'is', null)
         .is('head_approved_at', null)
         .is('head_rejected_at', null)
