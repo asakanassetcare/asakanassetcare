@@ -199,6 +199,95 @@ export default function AccountingDashboard() {
         </div>
       )}
 
+      <div className="grid gap-4 lg:grid-cols-3">
+        <DetailCard title="Payment รอบันทึก" count={filteredUnrecordedPayments.length}>
+          {filteredUnrecordedPayments.length === 0 ? (
+            <EmptyDetail />
+          ) : filteredUnrecordedPayments.map(p => (
+            <DetailItem
+              key={p.id}
+              title={p.invoices?.invoice_number ?? '-'}
+              subtitle={`${p.invoices?.rooms?.buildings?.name ?? '-'} · ห้อง ${p.invoices?.rooms?.room_number ?? '-'} · ${p.invoices?.tenants?.full_name ?? '-'}`}
+              meta={`฿${Number(p.amount).toLocaleString('th-TH')}`}
+              tag={<Tag color="blue">รอบันทึก</Tag>}
+              onClick={() => navigate('/payments', { state: { section: 'payments', tab: 'pending' } })}
+            />
+          ))}
+        </DetailCard>
+
+        <DetailCard title="Move-out รอบันทึก" count={filteredMoveOutsToRecord.length}>
+          {filteredMoveOutsToRecord.length === 0 ? (
+            <EmptyDetail />
+          ) : filteredMoveOutsToRecord.map(s => {
+            const mo = s.move_outs
+            return (
+              <DetailItem
+                key={s.id}
+                title={mo?.move_out_number ?? '-'}
+                subtitle={`${mo?.rooms?.buildings?.name ?? '-'} · ห้อง ${mo?.rooms?.room_number ?? '-'} · ${mo?.tenants?.full_name ?? '-'}`}
+                meta={`฿${Number(s.amount).toLocaleString('th-TH')}`}
+                tag={<Tag color="purple">รอบันทึก</Tag>}
+                onClick={() => navigate('/payments', { state: { section: 'move_outs', tab: 'pending' } })}
+              />
+            )
+          })}
+        </DetailCard>
+
+        <DetailCard title="Payment รออนุมัติ" count={filteredPayments.length}>
+          {filteredPayments.length === 0 ? (
+            <EmptyDetail />
+          ) : filteredPayments.map(p => (
+            <DetailItem
+              key={p.id}
+              title={p.invoices?.invoice_number ?? '-'}
+              subtitle={`${p.invoices?.rooms?.buildings?.name ?? '-'} · ห้อง ${p.invoices?.rooms?.room_number ?? '-'} · ${p.invoices?.tenants?.full_name ?? '-'}`}
+              meta={`฿${Number(p.amount).toLocaleString('th-TH')}`}
+              tag={<Tag color="amber">รออนุมัติ</Tag>}
+              onClick={() => navigate('/payments')}
+            />
+          ))}
+        </DetailCard>
+
+        <DetailCard title="Invoice ค้างชำระ" count={filteredOverdue.length}>
+          {filteredOverdue.length === 0 ? (
+            <EmptyDetail />
+          ) : filteredOverdue.map(inv => {
+            const daysOver = Math.ceil((new Date() - new Date(inv.due_date)) / 86400_000)
+            return (
+              <DetailItem
+                key={inv.id}
+                title={inv.invoice_number}
+                subtitle={`${inv.rooms?.buildings?.name ?? '-'} · ห้อง ${inv.rooms?.room_number ?? '-'} · ${inv.tenants?.full_name ?? '-'}`}
+                meta={`฿${Number(inv.total_amount).toLocaleString('th-TH')}`}
+                tag={<Tag color="red">เกิน {daysOver} วัน</Tag>}
+                onClick={() => navigate(`/invoices/${inv.id}`)}
+              />
+            )
+          })}
+        </DetailCard>
+
+        <DetailCard title="Settlement ค้าง" count={filteredSettlements.length}>
+          {filteredSettlements.length === 0 ? (
+            <EmptyDetail />
+          ) : filteredSettlements.map(s => {
+            const mo = s.move_outs
+            const isPaidByStaff = s.status === 'paid_by_staff'
+            return (
+              <DetailItem
+                key={s.id}
+                title={mo?.move_out_number ?? '-'}
+                subtitle={`${mo?.rooms?.buildings?.name ?? '-'} · ห้อง ${mo?.rooms?.room_number ?? '-'} · ${mo?.tenants?.full_name ?? '-'}`}
+                meta={`฿${Number(s.amount).toLocaleString('th-TH')}`}
+                tag={isPaidByStaff ? <Tag color="orange">รอยืนยัน</Tag> : <Tag color="purple">{s.direction === 'refund_to_tenant' ? 'รอทำจ่าย' : 'ติดตามหนี้'}</Tag>}
+                onClick={() => navigate(`/move-outs/${mo?.id}`)}
+              />
+            )
+          })}
+        </DetailCard>
+      </div>
+
+      {false && (
+      <>
       {/* Recording pending */}
       {filteredUnrecordedPayments.length > 0 && (
         <Section title="Payment รอบันทึก" count={filteredUnrecordedPayments.length} accent="border-blue-400">
@@ -318,6 +407,9 @@ export default function AccountingDashboard() {
         </Section>
       )}
 
+      </>
+      )}
+
       {hasItems && !hasResults && (
         <p className="mt-8 text-center text-sm text-gray-400">ไม่พบรายการที่ตรงกับ "{search}"</p>
       )}
@@ -357,6 +449,40 @@ function StatCard({ icon: Icon, label, value, color, onClick }) {
       </div>
     </div>
   )
+}
+
+function DetailCard({ title, count, children }) {
+  return (
+    <div className="min-h-[176px] rounded-xl border border-gray-100 bg-white px-5 py-4 shadow-sm">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <p className="text-xs font-semibold uppercase tracking-wide text-gray-400">{title}</p>
+        {count > 0 && <span className="text-xs text-gray-400">{count} รายการ</span>}
+      </div>
+      <div className="space-y-2">{children}</div>
+    </div>
+  )
+}
+
+function DetailItem({ title, subtitle, meta, tag, onClick }) {
+  return (
+    <div
+      onClick={onClick}
+      className="flex cursor-pointer items-start justify-between gap-3 rounded-lg px-3 py-2 transition-colors hover:bg-gray-50"
+    >
+      <div className="min-w-0">
+        <p className="truncate text-xs font-semibold text-gray-900">{title}</p>
+        <p className="truncate text-xs text-gray-500">{subtitle}</p>
+      </div>
+      <div className="flex shrink-0 items-center gap-1.5">
+        {meta && <span className="text-xs font-medium text-gray-900">{meta}</span>}
+        {tag}
+      </div>
+    </div>
+  )
+}
+
+function EmptyDetail() {
+  return <p className="py-8 text-center text-sm text-gray-400">ไม่มี</p>
 }
 
 function Section({ title, count, accent, children }) {
