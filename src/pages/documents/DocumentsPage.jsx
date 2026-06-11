@@ -399,6 +399,8 @@ export default function DocumentsPage() {
                           filename={`booking_receipt_${r._raw.booking_number}.pdf`}
                           label="PDF"
                           size="sm"
+                          storageBucket="payment-slips"
+                          storagePath={`booking-receipts/${r._raw.id}.pdf`}
                         />
                       </div>
                     )}

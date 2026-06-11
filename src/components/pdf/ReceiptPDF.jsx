@@ -5,16 +5,27 @@ registerFonts()
 
 const S = StyleSheet.create({
   page:       { fontFamily: 'Sarabun', fontSize: 10, color: '#111827', padding: '44 50 38 50' },
-  watermark:  {
+  watermarkMain:  {
     position: 'absolute',
-    top: 360,
+    top: 365,
     left: 30,
     width: 540,
     textAlign: 'center',
     fontSize: 52,
     fontWeight: 700,
+    color: '#94a3b8',
+    opacity: 0.055,
+    transform: 'rotate(-30deg)',
+  },
+  watermarkMicro: {
+    position: 'absolute',
+    left: -22,
+    width: 660,
+    textAlign: 'center',
+    fontSize: 9,
+    fontWeight: 700,
     color: '#64748b',
-    opacity: 0.12,
+    opacity: 0.07,
     transform: 'rotate(-30deg)',
   },
 
@@ -259,7 +270,12 @@ export default function ReceiptPDF({ payment, invoice: inv, company = {} }) {
           </Text>
         </View>
 
-        <Text fixed style={S.watermark}>Asakan AssetCare</Text>
+        <Text fixed style={S.watermarkMain}>Asakan AssetCare</Text>
+        {[245, 430, 615].map(top => (
+          <Text key={top} fixed style={[S.watermarkMicro, { top }]}>
+            {`Asakan AssetCare · ${docRef} · Asakan AssetCare · ${docRef} · Asakan AssetCare`}
+          </Text>
+        ))}
 
       </Page>
     </Document>

@@ -266,6 +266,8 @@ export default function BookingDetailPage() {
               document={<BookingReceiptPDF booking={booking} company={company} />}
               filename={`booking_receipt_${booking.booking_number}.pdf`}
               label="พิมพ์ใบรับเงินจอง"
+              storageBucket="payment-slips"
+              storagePath={`booking-receipts/${booking.id}.pdf`}
             />
           )}
           {canManagerApprovePayment && (
