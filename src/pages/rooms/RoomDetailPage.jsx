@@ -148,11 +148,17 @@ export default function RoomDetailPage() {
       .eq('status', 'waiting')
       .maybeSingle()
     setBooking(bk ?? null)
-    if (bk && rm.status === 'available') {
-      setRoom(prev => prev ? { ...prev, status: 'reserved' } : prev)
-    } else if (!bk && rm.status === 'reserved' && !ct) {
-      setRoom(prev => prev ? { ...prev, status: 'available' } : prev)
-    }
+
+    // Derive display/action status from the current contract/booking so stale
+    // rooms.status cannot show an occupied room as available.
+    const derivedStatus = ct?.status === 'active'
+      ? 'occupied'
+      : ct
+        ? 'reserved'
+        : bk
+          ? (rm.status === 'available' ? 'reserved' : rm.status)
+          : (rm.status === 'reserved' ? 'available' : rm.status)
+    setRoom(prev => prev ? { ...prev, status: derivedStatus } : prev)
 
     // Addons for current contract
     if (ct?.id) {
