@@ -139,7 +139,7 @@ export default function ContractDetailPage() {
     const [{ data }, { data: initInvRows }, { data: prorateInvRows }] = await Promise.all([
       supabase.from('contracts').select(`
         *,
-        rooms(id, room_number, floor, ownership, base_rent, base_deposit, base_advance, buildings(id, name, project_id, projects(name))),
+        rooms(id, room_number, title_deed_number, floor, ownership, base_rent, base_deposit, base_advance, buildings(id, name, project_id, projects(name))),
         tenants(id, full_name, phone, email, line_user_id),
         profiles!assigned_staff_id(id, full_name)
       `).eq('id', contractId).single(),
@@ -244,7 +244,7 @@ export default function ContractDetailPage() {
         penalty_amount, penalty_days,
         invoices(
           id, invoice_number, invoice_type, billing_period, total_amount,
-          rooms(room_number, buildings(name)),
+          rooms(room_number, title_deed_number, buildings(name)),
           tenants(full_name, phone)
         )
       `)

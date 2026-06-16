@@ -127,7 +127,7 @@ export default function PaymentsPage() {
       supabase.from('payments').select(`
         *, 
         invoices(id, invoice_number, invoice_type, total_amount, due_date, status,
-          rooms(room_number, building_id, buildings(id, name)),
+          rooms(room_number, title_deed_number, building_id, buildings(id, name)),
           tenants(full_name, line_user_id)),
         recorder:profiles!recorded_by(full_name),
         accounting_recorder:profiles!accounting_recorded_by(full_name)

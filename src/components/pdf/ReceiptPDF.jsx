@@ -114,6 +114,7 @@ export default function ReceiptPDF({ payment, invoice: inv, company = {} }) {
   const docRef     = `RCV-${inv.invoice_number}`
   const room   = inv.rooms
   const bldg   = room?.buildings
+  const roomHouseNo = room?.title_deed_number
   const typeLabel = TYPE_LABEL[inv.invoice_type] ?? inv.invoice_type ?? 'ค่าเช่า'
 
   return (
@@ -181,6 +182,7 @@ export default function ReceiptPDF({ payment, invoice: inv, company = {} }) {
             <Text style={S.partyName}>{inv.tenants?.full_name ?? '—'}</Text>
             <Text style={S.partySub}>{k(`${bldg?.name ?? ''} ห้อง ${room?.room_number ?? ''}`)}</Text>
             {inv.tenants?.phone && <Text style={S.partySub}>{k(`โทร ${inv.tenants.phone}`)}</Text>}
+            {roomHouseNo && <Text style={S.partySub}>{k(`บ้านเลขที่ ${roomHouseNo}`)}</Text>}
           </View>
           <View style={S.partyBoxLast}>
             <Text style={S.partyLbl}>{k('อ้างอิงใบแจ้งหนี้')}</Text>

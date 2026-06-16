@@ -69,7 +69,7 @@ export default function BookingDetailPage() {
       .from('bookings')
       .select(`
         *,
-        rooms(id, room_number, floor, base_rent, base_deposit, base_advance, ownership, status_color, status,
+        rooms(id, room_number, title_deed_number, floor, base_rent, base_deposit, base_advance, ownership, status_color, status,
               buildings(id, name, project_id, projects(name))),
         tenants(id, full_name, phone, email),
         profiles!created_by(full_name),

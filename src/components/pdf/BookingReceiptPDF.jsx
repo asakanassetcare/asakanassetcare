@@ -103,6 +103,7 @@ export default function BookingReceiptPDF({ booking, company = {} }) {
   const amt = Number(b.deposit_amount)
   const room = b.rooms
   const bldg = room?.buildings
+  const roomHouseNo = room?.title_deed_number
 
   return (
     <Document title={`ใบรับเงินจอง ${b.booking_number}`}>
@@ -165,6 +166,7 @@ export default function BookingReceiptPDF({ booking, company = {} }) {
             <Text style={S.partyName}>{b.tenants?.full_name ?? '—'}</Text>
             <Text style={S.partySub}>{k(`${bldg?.name ?? ''} ห้อง ${room?.room_number ?? ''}`)}</Text>
             {b.tenants?.phone && <Text style={S.partySub}>{k(`โทร ${b.tenants.phone}`)}</Text>}
+            {roomHouseNo && <Text style={S.partySub}>{k(`บ้านเลขที่ ${roomHouseNo}`)}</Text>}
           </View>
           <View style={S.partyBoxLast}>
             <Text style={S.partyLbl}>{k('เลขที่การจอง')}</Text>

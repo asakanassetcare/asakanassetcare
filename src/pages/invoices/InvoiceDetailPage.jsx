@@ -81,7 +81,7 @@ export default function InvoiceDetailPage() {
 
   async function fetchAll() {
     const [{ data: inv }, { data: itms }, { data: pmts }] = await Promise.all([
-      supabase.from('invoices').select('*, rooms(room_number, buildings(name)), tenants(full_name, phone), contracts(contract_number, booking_id)').eq('id', invoiceId).single(),
+      supabase.from('invoices').select('*, rooms(room_number, title_deed_number, buildings(name)), tenants(full_name, phone), contracts(contract_number, booking_id)').eq('id', invoiceId).single(),
       supabase.from('invoice_items').select('*').eq('invoice_id', invoiceId).order('display_order'),
       supabase.from('payments').select('*, profiles!recorded_by(full_name)').eq('invoice_id', invoiceId).order('created_at', { ascending: false }),
     ])
