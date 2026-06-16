@@ -394,8 +394,18 @@ export default function RoomsPage() {
 
                       {/* ชื่อผู้เช่า */}
                       <td className="px-4 py-3 text-center">
-                        {room.tenants?.full_name
-                          ? <span className="font-medium text-blue-600">{room.tenants.full_name}</span>
+                        {room.tenants?.full_name && room.tenants?.id
+                          ? (
+                            <button
+                              type="button"
+                              onClick={() => navigate(`/tenants/${room.tenants.id}`)}
+                              className="font-medium text-blue-600 hover:text-blue-700 hover:underline"
+                            >
+                              {room.tenants.full_name}
+                            </button>
+                          )
+                          : room.tenants?.full_name
+                            ? <span className="font-medium text-blue-600">{room.tenants.full_name}</span>
                           : <span className="text-gray-300">—</span>
                         }
                       </td>

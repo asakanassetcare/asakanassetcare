@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom'
-import { ChevronRight, Save, Plus, Trash2, Car, Check, X } from 'lucide-react'
+import { ChevronRight, Save, Plus, Trash2, Car, Check, X, Download, Loader2 } from 'lucide-react'
+import * as XLSX from 'xlsx'
 import { supabase } from '../../lib/supabase'
 import Button from '../../components/ui/Button'
 import Card from '../../components/ui/Card'
 import Input from '../../components/ui/Input'
+import Select from '../../components/ui/Select'
 import Textarea from '../../components/ui/Textarea'
 import Badge from '../../components/ui/Badge'
 import IdCardField from '../../components/tenants/IdCardField'
@@ -28,6 +30,126 @@ function invDesc(inv) {
     return `${base} ${MONTHS_SHORT[parseInt(m) - 1]} ${parseInt(y) + 543}`
   }
   return base
+}
+
+function N(v) { return Number(v) || 0 }
+
+function safeFileName(value) {
+  return String(value || '')
+    .trim()
+    .replace(/[\\/:*?"<>|]+/g, '_')
+    .replace(/\s+/g, '_')
+    .slice(0, 80) || 'customer'
+}
+
+function sumApprovedBasePayments(payments = []) {
+  return payments
+    .filter(p => p.status === 'approved')
+    .reduce((sum, p) => sum + Math.max(0, N(p.amount) - N(p.penalty_amount)), 0)
+}
+
+function saveCustomerPaymentCardXlsx({ tenant, contractLabel, invoices }) {
+  const activeInvoices = invoices.filter(inv => !['cancelled', 'rejected'].includes(inv.status))
+  const approvedPayments = activeInvoices.flatMap(inv => (inv.payments ?? []).filter(p => p.status === 'approved'))
+  const invoiceTotal = activeInvoices.reduce((sum, inv) => sum + N(inv.total_amount), 0)
+  const approvedBasePaid = approvedPayments.reduce((sum, p) => sum + Math.max(0, N(p.amount) - N(p.penalty_amount)), 0)
+  const approvedPenalty = approvedPayments.reduce((sum, p) => sum + N(p.penalty_amount), 0)
+  const approvedPaid = approvedPayments.reduce((sum, p) => sum + N(p.amount), 0)
+  const balance = invoiceTotal - approvedBasePaid
+
+  const rows = []
+  let index = 1
+  for (const inv of invoices) {
+    const payments = inv.payments?.length ? inv.payments : [null]
+    const invoiceBalance = Math.max(0, N(inv.total_amount) - sumApprovedBasePayments(inv.payments ?? []))
+
+    for (const p of payments) {
+      const penalty = N(p?.penalty_amount)
+      rows.push([
+        index++,
+        inv.issue_date ? formatThaiDate(inv.issue_date) : '',
+        inv.due_date ? formatThaiDate(inv.due_date) : '',
+        invDesc(inv),
+        inv.invoice_number ?? '',
+        inv.contracts?.contract_number ?? '',
+        [inv.rooms?.buildings?.name, inv.rooms?.room_number].filter(Boolean).join(' / '),
+        N(inv.total_amount),
+        p?.penalty_days ?? 0,
+        penalty,
+        N(inv.total_amount) + penalty,
+        p?.paid_date ? formatThaiDate(p.paid_date) : '',
+        p?.id ?? '',
+        N(p?.amount),
+        inv.status ?? '',
+        p?.status ?? '',
+        invoiceBalance,
+        p?.bank_reference ?? '',
+        p?.profiles?.full_name ?? '',
+        [inv.note, p?.note].filter(Boolean).join(' | '),
+      ])
+    }
+  }
+
+  const aoa = [
+    ['Customer Payment Card'],
+    ['ลูกค้า', tenant?.full_name ?? '', 'เบอร์โทร', tenant?.phone ?? ''],
+    ['สัญญา', contractLabel, 'Export เมื่อ', formatThaiDate(new Date())],
+    [],
+    ['สรุปยอด', 'จำนวนเงิน'],
+    ['ยอดใบแจ้งหนี้รวม', invoiceTotal],
+    ['รับชำระแล้ว', approvedPaid],
+    ['ค่าปรับที่รับแล้ว', approvedPenalty],
+    ['คงค้าง', balance],
+    [],
+    [
+      'ลำดับ',
+      'วันที่ใบแจ้งหนี้',
+      'วันที่ครบกำหนด',
+      'งวด/รายการ',
+      'เลขที่ Invoice',
+      'เลขที่สัญญา',
+      'อาคาร/ห้อง',
+      'ยอดเรียกเก็บ',
+      'วันปรับ',
+      'ค่าปรับ',
+      'ยอดสุทธิ',
+      'วันที่ชำระ',
+      'เลขที่ Payment',
+      'รับชำระ',
+      'สถานะ Invoice',
+      'สถานะ Payment',
+      'คงเหลือ Invoice',
+      'อ้างอิงธนาคาร',
+      'ผู้บันทึก',
+      'หมายเหตุ',
+    ],
+    ...rows,
+  ]
+
+  const ws = XLSX.utils.aoa_to_sheet(aoa)
+  ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 19 } }]
+  ws['!cols'] = [
+    { wch: 7 }, { wch: 16 }, { wch: 16 }, { wch: 24 }, { wch: 18 },
+    { wch: 18 }, { wch: 22 }, { wch: 14 }, { wch: 9 }, { wch: 12 },
+    { wch: 12 }, { wch: 16 }, { wch: 36 }, { wch: 12 }, { wch: 16 },
+    { wch: 16 }, { wch: 14 }, { wch: 18 }, { wch: 18 }, { wch: 28 },
+  ]
+  ws['!freeze'] = { xSplit: 0, ySplit: 11 }
+
+  for (let r = 6; r <= 9; r++) {
+    const cell = ws[`B${r}`]
+    if (cell) cell.z = '#,##0.00'
+  }
+  for (let r = 12; r < aoa.length + 1; r++) {
+    for (const col of ['H', 'J', 'K', 'N', 'Q']) {
+      const cell = ws[`${col}${r}`]
+      if (cell) cell.z = '#,##0.00'
+    }
+  }
+
+  const wb = XLSX.utils.book_new()
+  XLSX.utils.book_append_sheet(wb, ws, 'Customer Card')
+  XLSX.writeFile(wb, `customer_card_${safeFileName(tenant?.full_name)}.xlsx`)
 }
 
 const TABS = [
@@ -67,8 +189,10 @@ export default function TenantDetailPage() {
 
   const [contracts, setContracts] = useState([])
   const [payments, setPayments] = useState([])
+  const [paymentContractId, setPaymentContractId] = useState('')
   const [moveOuts, setMoveOuts] = useState([])
   const [historyLoading, setHistoryLoading] = useState(false)
+  const [exportingPayments, setExportingPayments] = useState(false)
 
   const [vehicles,     setVehicles]    = useState([])
   const [vPlate,       setVPlate]      = useState('')
@@ -77,14 +201,17 @@ export default function TenantDetailPage() {
   const [vShowForm,    setVShowForm]   = useState(false)
 
   useEffect(() => {
-    if (!isNew) { fetchTenant(); fetchVehicles() }
+    if (!isNew) { setPaymentContractId(''); fetchTenant(); fetchVehicles() }
   }, [tenantId])
 
   useEffect(() => {
     if (tab === 'contracts' && contracts.length === 0) fetchContracts()
-    if (tab === 'payments'  && payments.length  === 0) fetchPayments()
+    if (tab === 'payments') {
+      if (contracts.length === 0) fetchContracts(false)
+      fetchPayments()
+    }
     if (tab === 'moveouts'  && moveOuts.length  === 0) fetchMoveOuts()
-  }, [tab])
+  }, [tab, paymentContractId])
 
   async function fetchTenant() {
     const { data } = await supabase
@@ -108,27 +235,67 @@ export default function TenantDetailPage() {
     setLoading(false)
   }
 
-  async function fetchContracts() {
-    setHistoryLoading(true)
+  async function fetchContracts(showLoading = true) {
+    if (showLoading) setHistoryLoading(true)
     const { data } = await supabase
       .from('contracts')
       .select('id, contract_number, status, contract_start_date, contract_end_date, rooms(room_number, buildings(name))')
       .eq('tenant_id', tenantId)
       .order('created_at', { ascending: false })
     setContracts(data ?? [])
-    setHistoryLoading(false)
+    if (showLoading) setHistoryLoading(false)
   }
 
   async function fetchPayments() {
     setHistoryLoading(true)
-    const { data } = await supabase
+    let query = supabase
       .from('payments')
-      .select('id, amount, status, paid_date, invoices!inner(invoice_number, invoice_type, billing_period, tenant_id)')
+      .select('id, amount, status, paid_date, invoices!inner(id, invoice_number, invoice_type, billing_period, tenant_id, contract_id)')
       .eq('invoices.tenant_id', tenantId)
+
+    if (paymentContractId) query = query.eq('invoices.contract_id', paymentContractId)
+
+    const { data } = await query
       .order('created_at', { ascending: false })
       .limit(50)
     setPayments(data ?? [])
     setHistoryLoading(false)
+  }
+
+  async function handleExportPaymentCard() {
+    setExportingPayments(true)
+    try {
+      let query = supabase
+        .from('invoices')
+        .select(`
+          id, invoice_number, invoice_type, billing_period, issue_date, due_date,
+          total_amount, status, note, contract_id,
+          rooms(room_number, buildings(name)),
+          contracts(contract_number),
+          payments(id, amount, status, paid_date, bank_reference, note, penalty_amount, penalty_days, profiles!recorded_by(full_name))
+        `)
+        .eq('tenant_id', tenantId)
+
+      if (paymentContractId) query = query.eq('contract_id', paymentContractId)
+
+      const { data, error } = await query.order('issue_date', { ascending: true })
+      if (error) throw error
+
+      const selectedContract = contracts.find(c => c.id === paymentContractId)
+      const contractLabel = selectedContract
+        ? [selectedContract.contract_number, selectedContract.rooms?.buildings?.name, selectedContract.rooms?.room_number].filter(Boolean).join(' · ')
+        : 'ทุกสัญญา'
+      const invoices = (data ?? []).map(inv => ({
+        ...inv,
+        payments: [...(inv.payments ?? [])].sort((a, b) => String(a.paid_date ?? '').localeCompare(String(b.paid_date ?? ''))),
+      }))
+
+      saveCustomerPaymentCardXlsx({ tenant, contractLabel, invoices })
+    } catch (err) {
+      alert(`Export ไม่สำเร็จ: ${err.message}`)
+    } finally {
+      setExportingPayments(false)
+    }
   }
 
   async function fetchMoveOuts() {
@@ -426,7 +593,7 @@ export default function TenantDetailPage() {
           ) : (
             <div className="rounded-xl border border-gray-100 bg-white overflow-hidden">
               {contracts.map((c, i) => (
-                <div key={c.id} className={`flex items-center justify-between px-4 py-3.5 ${i < contracts.length - 1 ? 'border-b border-gray-50' : ''}`}>
+                <button key={c.id} type="button" onClick={() => navigate(`/contracts/${c.id}`)} className={`flex w-full items-center justify-between px-4 py-3.5 text-left transition-colors hover:bg-blue-50/60 ${i < contracts.length - 1 ? 'border-b border-gray-50' : ''}`}>
                   <div>
                     <p className="text-sm font-medium text-gray-900">{c.contract_number}</p>
                     <p className="text-xs text-gray-400">
@@ -435,7 +602,7 @@ export default function TenantDetailPage() {
                     </p>
                   </div>
                   <Badge variant={c.status} />
-                </div>
+                </button>
               ))}
             </div>
           )}
@@ -445,6 +612,29 @@ export default function TenantDetailPage() {
       {/* Tab: Payments */}
       {tab === 'payments' && (
         <div>
+          <div className="mb-3 flex flex-wrap items-center justify-end gap-2">
+            {contracts.length > 0 && (
+              <Select
+                value={paymentContractId}
+                onChange={e => setPaymentContractId(e.target.value)}
+                placeholder="ทุกสัญญา"
+                options={contracts.map(c => ({
+                  value: c.id,
+                  label: [c.contract_number, c.rooms?.buildings?.name, c.rooms?.room_number].filter(Boolean).join(' · '),
+                }))}
+                wrapperClass="w-full sm:w-80"
+              />
+            )}
+            <Button
+              type="button"
+              variant="outline"
+              icon={exportingPayments ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Download className="h-3.5 w-3.5" />}
+              loading={exportingPayments}
+              onClick={handleExportPaymentCard}
+            >
+              Export Excel
+            </Button>
+          </div>
           {historyLoading ? (
             <div className="h-16 animate-pulse rounded-xl bg-gray-100" />
           ) : payments.length === 0 ? (
@@ -452,7 +642,7 @@ export default function TenantDetailPage() {
           ) : (
             <div className="rounded-xl border border-gray-100 bg-white overflow-hidden">
               {payments.map((p, i) => (
-                <div key={p.id} className={`flex items-center justify-between px-4 py-3.5 ${i < payments.length - 1 ? 'border-b border-gray-50' : ''}`}>
+                <button key={p.id} type="button" onClick={() => p.invoices?.id && navigate(`/invoices/${p.invoices.id}`)} className={`flex w-full items-center justify-between px-4 py-3.5 text-left transition-colors hover:bg-blue-50/60 ${i < payments.length - 1 ? 'border-b border-gray-50' : ''}`}>
                   <div>
                     <p className="text-sm font-medium text-gray-900">{invDesc(p.invoices)}</p>
                     <p className="text-xs text-gray-400">{p.invoices?.invoice_number} · {formatThaiDate(p.paid_date)}</p>
@@ -461,7 +651,7 @@ export default function TenantDetailPage() {
                     <span className="text-sm font-semibold text-gray-900">฿{Number(p.amount).toLocaleString('th-TH')}</span>
                     <Badge variant={p.status} />
                   </div>
-                </div>
+                </button>
               ))}
             </div>
           )}
