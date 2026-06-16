@@ -66,8 +66,8 @@ function TL({ v, min = 'min-w-[100px]', placeholder = '' }) {
 function Sec({ title, children }) {
   return (
     <section className="mt-4 break-inside-avoid">
-      <h2 className="mb-2 rounded bg-slate-100 px-3 py-1 text-[14px] font-bold print:bg-slate-100">{title}</h2>
-      <div className="space-y-1.5 text-justify text-[13.5px] leading-[2.05]">{children}</div>
+      <h2 className="mb-2 rounded bg-slate-100 px-3 py-1 text-[11.5px] font-bold print:bg-slate-100">{title}</h2>
+      <div className="space-y-1.5 text-justify text-[11.5px] leading-[2.05]">{children}</div>
     </section>
   )
 }
@@ -77,7 +77,7 @@ function Sig({ role, name, wideName = false, smallName = false }) {
     ? <span className="inline-block w-[150px] border-b border-dotted border-slate-600">&#8203;</span>
     : DS)
   return (
-    <div className="mt-6 text-[13.5px] leading-7">
+    <div className="mt-6 text-[11.5px] leading-6">
       <table className="mx-auto border-separate border-spacing-0">
         <tbody>
           <tr>
@@ -202,7 +202,40 @@ export default function ContractPrintPage() {
   return (
     <div className="min-h-screen bg-slate-100 py-6 print:bg-white print:py-0">
       <style>{`
-        @page { size: A4; margin: 14mm 12mm; }
+        @page {
+          size: A4;
+          margin: 10mm 12mm 16mm 12mm;
+          @top-left   { content: ''; }
+          @top-center { content: ''; }
+          @top-right  { content: ''; }
+          @bottom-left {
+            content: 'สัญญาเช่าห้องชุด';
+            font-size: 8pt;
+            color: #94a3b8;
+            font-family: 'Sarabun', sans-serif;
+            border-top: 0.5pt solid #e2e8f0;
+            padding-top: 4pt;
+            vertical-align: top;
+          }
+          @bottom-center {
+            content: 'หน้า ' counter(page) ' / ' counter(pages);
+            font-size: 8.5pt;
+            color: #475569;
+            font-family: 'Sarabun', sans-serif;
+            border-top: 0.5pt solid #e2e8f0;
+            padding-top: 4pt;
+            vertical-align: top;
+          }
+          @bottom-right {
+            content: '${c.contract_number}';
+            font-size: 8pt;
+            color: #94a3b8;
+            font-family: 'Sarabun', sans-serif;
+            border-top: 0.5pt solid #e2e8f0;
+            padding-top: 4pt;
+            vertical-align: top;
+          }
+        }
         @media print {
           .no-print { display: none !important; }
           .print-page { box-shadow: none !important; margin: 0 !important; width: 100% !important; padding: 0 !important; }
@@ -229,10 +262,10 @@ export default function ContractPrintPage() {
       <main className="print-page mx-auto w-[210mm] bg-white px-[14mm] py-[13mm] shadow-xl ring-1 ring-slate-200 print:ring-0">
 
         {/* Header */}
-        <header className="border-b-2 border-slate-900 pb-4 text-[13.5px]">
+        <header className="border-b-2 border-slate-900 pb-4 text-[11px]">
           <div className="flex items-baseline justify-between">
             <div className="flex-1" />
-            <h1 className="text-[21px] font-bold tracking-wide">สัญญาเช่าห้องชุด</h1>
+            <h1 className="text-[17px] font-bold tracking-wide">สัญญาเช่าห้องชุด</h1>
             <div className="flex-1 text-right">เลขที่สัญญา <TL v={c.contract_number} min="min-w-[110px]" /></div>
           </div>
           <div className="mt-3 flex justify-between">
@@ -242,7 +275,7 @@ export default function ContractPrintPage() {
         </header>
 
         {/* Intro */}
-        <div className="mt-4 space-y-2.5 text-justify text-[13.5px] leading-[2.05]">
+        <div className="mt-4 space-y-2.5 text-justify text-[11.5px] leading-[2.05]">
           <p className="indent-[4em]">
             สัญญาฉบับนี้ทำขึ้นระหว่าง <TL v={co} /> เลขประจำตัวผู้เสียภาษีอากร <TL v={coTax} />
             {' '}สำนักงานตั้งอยู่ <TL v={coAddrFull} min="min-w-[160px]" /> โดย <TL v="นางสาว ภัสสรมณฑ์ สิริณลญากรณ์" /> ผู้มีอำนาจกระทำการแทน
@@ -389,7 +422,7 @@ export default function ContractPrintPage() {
         </Sec>
 
         {/* ปิดสัญญา + ลายเซ็น */}
-        <p className="mt-5 text-justify text-[13.5px] leading-[2.05]">
+        <p className="mt-5 text-justify text-[11.5px] leading-[2.05]">
           สัญญานี้ทำขึ้นเป็นสองฉบับ มีข้อความถูกต้องตรงกัน คู่สัญญาทั้งสองฝ่ายได้อ่านและเข้าใจข้อความในสัญญานี้โดยตลอดแล้ว เห็นว่าถูกต้องตรงตามเจตนา จึงได้ลงลายมือชื่อไว้เป็นสำคัญต่อหน้าพยาน และคู่สัญญาต่างยึดถือไว้ฝ่ายละหนึ่งฉบับ
         </p>
         <div className="grid grid-cols-2 gap-x-8">
@@ -405,20 +438,20 @@ export default function ContractPrintPage() {
       <main className="print-page page-break mx-auto mt-6 w-[210mm] bg-white px-[14mm] py-[13mm] shadow-xl ring-1 ring-slate-200 print:mt-0 print:ring-0">
         <div className="pt-2">
           <header className="border-b-2 border-slate-900 pb-3 text-center">
-            <h1 className="text-[19px] font-bold">เอกสารแนบท้ายหมายเลข 1</h1>
-            <p className="mt-1 text-[14px] font-semibold">บัญชีทรัพย์สิน เฟอร์นิเจอร์ และเครื่องใช้ไฟฟ้า</p>
-            <p className="mt-1 text-[13.5px]">
+            <h1 className="text-[15.5px] font-bold">เอกสารแนบท้ายหมายเลข 1</h1>
+            <p className="mt-1 text-[11.5px] font-semibold">บัญชีทรัพย์สิน เฟอร์นิเจอร์ และเครื่องใช้ไฟฟ้า</p>
+            <p className="mt-1 text-[11px]">
               ประจำห้องชุดเลขที่ <TL v={roomNo} min="min-w-[50px]" />
               {proj ? <> โครงการ <TL v={proj} /></> : null}
               {' '}อาคาร <TL v={bld} />
             </p>
-            <p className="mt-1 text-[13px]">
+            <p className="mt-1 text-[10.5px]">
               เลขมิเตอร์ไฟเริ่มต้น <TL v={elecMeterStart} min="min-w-[90px]" />
               {'  '}เลขมิเตอร์น้ำเริ่มต้น <TL v={waterMeterStart} min="min-w-[90px]" />
             </p>
           </header>
 
-          <table className="mt-4 w-full border-collapse text-[12.5px]">
+          <table className="mt-4 w-full border-collapse text-[10px]">
             <colgroup>
               <col style={{ width: '6%' }} />
               <col style={{ width: '32%' }} />
@@ -448,7 +481,7 @@ export default function ContractPrintPage() {
             </tbody>
           </table>
 
-          <p className="mt-5 text-justify text-[13.5px] leading-[2.05]">
+          <p className="mt-5 text-justify text-[11px] leading-[2.05]">
             ผู้เช่าได้ตรวจสอบทรัพย์สิน เฟอร์นิเจอร์ และเครื่องใช้ไฟฟ้าตามรายการข้างต้นแล้ว เห็นว่าครบถ้วน อยู่ในสภาพดี ใช้งานได้ตามปกติ และยินยอมรับผิดชอบหากเกิดความเสียหายหรือสูญหายในระหว่างอายุสัญญาเช่า
           </p>
           <div className="grid grid-cols-2 gap-x-8">
