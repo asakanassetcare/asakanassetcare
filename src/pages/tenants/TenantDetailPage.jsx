@@ -207,11 +207,10 @@ async function saveCustomerPaymentCardXlsx({ tenant, contractLabel, invoices }) 
   ws.pageSetup.fitToPage   = true
   ws.pageSetup.fitToWidth  = 1
   ws.pageSetup.fitToHeight = 0
-  ws.pageSetup.printTitlesRow = '$1:$11'
   ws.pageSetup.margins = { left: 0.5, right: 0.5, top: 0.75, bottom: 0.75, header: 0.3, footer: 0.3 }
   ws.headerFooter.oddHeader = `&L&"Arial,Bold"${tenant?.full_name ?? ''}&R${contractLabel}`
-  ws.headerFooter.oddFooter = `&L&"Arial,Regular"AssetCare&Cหน้า &P / &N&R&D`
-  ws.views = [{ state: 'frozen', xSplit: 0, ySplit: 11, activeCell: 'A12' }]
+  ws.headerFooter.oddFooter = `&LAssetCare&C&P / &N&R&D`
+  ws.views = [{ state: 'frozen', xSplit: 0, ySplit: 11, topLeftCell: 'A12', activeCell: 'A12' }]
 
   // ── Download ──
   const buffer = await wb.xlsx.writeBuffer()
