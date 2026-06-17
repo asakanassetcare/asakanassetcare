@@ -1,0 +1,68 @@
+-- Replace hardcoded anon key in LINE notify cron jobs with current_setting()
+-- Same pattern used by telegram_internal_notifications (migration 67)
+-- To set the key: ALTER DATABASE postgres SET "app.settings.anon_key" = '<anon_key>';
+
+select cron.unschedule('line_notify_invoice_1st');
+select cron.unschedule('line_notify_reminder_5th');
+select cron.unschedule('line_notify_contract_expiry_30d');
+select cron.unschedule('line_notify_contract_expiry_7d');
+
+select cron.schedule(
+  'line_notify_invoice_1st',
+  '0 1 1 * *',
+  $$
+    select net.http_post(
+      url     := 'https://qpofehctnesewbgugqvd.supabase.co/functions/v1/line-notify',
+      headers := json_build_object(
+        'Content-Type', 'application/json',
+        'Authorization', 'Bearer ' || current_setting('app.settings.anon_key', true)
+      )::text,
+      body    := '{"type":"invoice"}'::text
+    );
+  $$
+);
+
+select cron.schedule(
+  'line_notify_reminder_5th',
+  '0 1 5 * *',
+  $$
+    select net.http_post(
+      url     := 'https://qpofehctnesewbgugqvd.supabase.co/functions/v1/line-notify',
+      headers := json_build_object(
+        'Content-Type', 'application/json',
+        'Authorization', 'Bearer ' || current_setting('app.settings.anon_key', true)
+      )::text,
+      body    := '{"type":"reminder"}'::text
+    );
+  $$
+);
+
+select cron.schedule(
+  'line_notify_contract_expiry_30d',
+  '0 1 * * *',
+  $$
+    select net.http_post(
+      url     := 'https://qpofehctnesewbgugqvd.supabase.co/functions/v1/line-notify',
+      headers := json_build_object(
+        'Content-Type', 'application/json',
+        'Authorization', 'Bearer ' || current_setting('app.settings.anon_key', true)
+      )::text,
+      body    := '{"type":"contract_expiry","days_before":30}'::text
+    );
+  $$
+);
+
+select cron.schedule(
+  'line_notify_contract_expiry_7d',
+  '0 1 * * *',
+  $$
+    select net.http_post(
+      url     := 'https://qpofehctnesewbgugqvd.supabase.co/functions/v1/line-notify',
+      headers := json_build_object(
+        'Content-Type', 'application/json',
+        'Authorization', 'Bearer ' || current_setting('app.settings.anon_key', true)
+      )::text,
+      body    := '{"type":"contract_expiry","days_before":7}'::text
+    );
+  $$
+);
