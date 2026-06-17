@@ -48,169 +48,196 @@ function sumApprovedBasePayments(payments = []) {
 }
 
 async function saveCustomerPaymentCardXlsx({ tenant, contractLabel, invoices }) {
-  const activeInvoices = invoices.filter(inv => !['cancelled', 'rejected'].includes(inv.status))
+  const activeInvoices   = invoices.filter(inv => !['cancelled', 'rejected'].includes(inv.status))
   const approvedPayments = activeInvoices.flatMap(inv => (inv.payments ?? []).filter(p => p.status === 'approved'))
-  const invoiceTotal    = activeInvoices.reduce((sum, inv) => sum + N(inv.total_amount), 0)
-  const approvedBasePaid = approvedPayments.reduce((sum, p) => sum + Math.max(0, N(p.amount) - N(p.penalty_amount)), 0)
-  const approvedPenalty  = approvedPayments.reduce((sum, p) => sum + N(p.penalty_amount), 0)
+  const invoiceTotal     = activeInvoices.reduce((sum, inv) => sum + N(inv.total_amount), 0)
   const approvedPaid     = approvedPayments.reduce((sum, p) => sum + N(p.amount), 0)
-  const balance          = invoiceTotal - approvedBasePaid
+  const approvedPenalty  = approvedPayments.reduce((sum, p) => sum + N(p.penalty_amount), 0)
+  const balance          = invoiceTotal - approvedPayments.reduce((sum, p) => sum + Math.max(0, N(p.amount) - N(p.penalty_amount)), 0)
 
   const ExcelJS = (await import('exceljs')).default
   const wb = new ExcelJS.Workbook()
   wb.creator = 'AssetCare'
   const ws = wb.addWorksheet('Customer Card')
 
-  const COLS = [
-    { header: 'ลำดับ',           width: 7  },
-    { header: 'วันที่ใบแจ้งหนี้', width: 16 },
-    { header: 'วันครบกำหนด',     width: 16 },
-    { header: 'งวด/รายการ',      width: 24 },
-    { header: 'เลขที่ Invoice',   width: 18 },
-    { header: 'เลขที่สัญญา',     width: 18 },
-    { header: 'อาคาร/ห้อง',      width: 18 },
-    { header: 'ยอดเรียกเก็บ',    width: 14 },
-    { header: 'วันปรับ',          width: 9  },
-    { header: 'ค่าปรับ',          width: 12 },
-    { header: 'ยอดสุทธิ',         width: 12 },
-    { header: 'วันที่ชำระ',       width: 16 },
-    { header: 'เลขที่ Payment',   width: 36 },
-    { header: 'รับชำระ',          width: 12 },
-    { header: 'สถานะ Invoice',    width: 16 },
-    { header: 'สถานะ Payment',    width: 16 },
-    { header: 'คงเหลือ Invoice',  width: 14 },
-    { header: 'อ้างอิงธนาคาร',   width: 18 },
-    { header: 'ผู้บันทึก',        width: 18 },
-    { header: 'หมายเหตุ',         width: 28 },
+  // 8 columns only → fits A4 landscape
+  ws.columns = [
+    { width: 6  }, // A: ลำดับ
+    { width: 16 }, // B: วันที่
+    { width: 30 }, // C: งวด/รายการ
+    { width: 20 }, // D: เลขที่ Invoice
+    { width: 16 }, // E: อาคาร/ห้อง
+    { width: 14 }, // F: ยอดสุทธิ
+    { width: 14 }, // G: รับชำระ
+    { width: 14 }, // H: คงเหลือ
   ]
-  const CC = COLS.length
-  ws.columns = COLS.map(c => ({ width: c.width }))
+
+  const f = (fill) => ({ type: 'pattern', pattern: 'solid', fgColor: { argb: fill } })
+  const TITLE_F = f('FF1E3A5F'), INFO_F  = f('FFE8F1FB'), SUM_HDR_F = f('FFE2E8F0')
+  const SUM_F   = f('FFF8FAFC'), SEC_F   = f('FF334155'), HDR_F     = f('FF475569')
+  const INV_F   = f('FFFFFFFF'), PAY_F   = f('FFF1F5F9'), NOTE_F    = f('FFFAFAFA')
+  const TOTAL_F = f('FFE2E8F0')
+
+  const thin = { style: 'thin',  color: { argb: 'FFD1D5DB' } }
+  const hair = { style: 'hair',  color: { argb: 'FFE5E7EB' } }
+  const fill8 = (rowNum, fill) => { for (let c = 1; c <= 8; c++) ws.getRow(rowNum).getCell(c).fill = fill }
 
   // ── Row 1: Title ──
-  ws.mergeCells(1, 1, 1, CC)
-  const titleCell = ws.getCell('A1')
-  titleCell.value = 'Customer Payment Card'
-  titleCell.font  = { bold: true, size: 18, color: { argb: 'FFFFFFFF' } }
-  titleCell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A5F' } }
-  titleCell.alignment = { horizontal: 'center', vertical: 'middle' }
-  ws.getRow(1).height = 32
-
-  // ── Rows 2–3: Info ──
-  const INFO_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F1FB' } }
-  const fillRow = (rowNum) => { for (let c = 1; c <= CC; c++) ws.getRow(rowNum).getCell(c).fill = INFO_FILL }
-
-  ws.mergeCells(2, 2, 2, 3); ws.mergeCells(2, 5, 2, CC)
-  ws.mergeCells(3, 2, 3, 3); ws.mergeCells(3, 5, 3, CC)
-  fillRow(2); fillRow(3)
-  ;[
-    [2, 'ลูกค้า', tenant?.full_name ?? '', 'เบอร์โทร', tenant?.phone ?? ''],
-    [3, 'สัญญา',  contractLabel,           'Export เมื่อ', formatThaiDate(new Date())],
-  ].forEach(([rowNum, l1, v1, l2, v2]) => {
-    const r = ws.getRow(rowNum)
-    r.height = 20
-    r.getCell(1).value = l1; r.getCell(1).font = { bold: true, size: 12 }
-    r.getCell(2).value = v1; r.getCell(2).font = { size: 12 }
-    r.getCell(4).value = l2; r.getCell(4).font = { bold: true, size: 12 }
-    r.getCell(5).value = v2; r.getCell(5).font = { size: 12 }
+  ws.mergeCells('A1:H1')
+  const r1 = ws.getRow(1); r1.height = 28
+  fill8(1, TITLE_F)
+  Object.assign(ws.getCell('A1'), {
+    value: 'CUSTOMER PAYMENT CARD',
+    font:  { bold: true, size: 16, color: { argb: 'FFFFFFFF' } },
+    fill:  TITLE_F,
+    alignment: { horizontal: 'center', vertical: 'middle' },
   })
 
-  // ── Row 4: spacer ──
-  ws.getRow(4).height = 6
+  // ── Row 2: Tenant / date ──
+  fill8(2, INFO_F)
+  ws.getRow(2).height = 20
+  ws.mergeCells('B2:C2'); ws.mergeCells('E2:F2'); ws.mergeCells('G2:H2')
+  ;[['A2','ลูกค้า',true],['B2',tenant?.full_name??'',false],['D2','เบอร์โทร',true],['E2',tenant?.phone??'',false],['G2','Export เมื่อ',true]].forEach(([ref,v,bold])=>{
+    Object.assign(ws.getCell(ref),{ value:v, font:{ bold, size:11 }, fill:INFO_F })
+  })
+  ws.getCell('H2').value = formatThaiDate(new Date()); ws.getCell('H2').font = { size:11 }; ws.getCell('H2').fill = INFO_F
 
-  // ── Rows 5–9: Summary ──
-  const SUM_HDR = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } }
-  const SUM_ROW = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } }
+  // ── Row 3: Contract ──
+  fill8(3, INFO_F)
+  ws.getRow(3).height = 20
+  ws.mergeCells('B3:H3')
+  Object.assign(ws.getCell('A3'),{ value:'สัญญา', font:{ bold:true, size:11 }, fill:INFO_F })
+  Object.assign(ws.getCell('B3'),{ value:contractLabel, font:{ size:11 }, fill:INFO_F })
+
+  // ── Row 4: spacer ──
+  fill8(4, INFO_F); ws.getRow(4).height = 4
+
+  // ── Row 5: Summary header ──
+  ws.mergeCells('A5:H5'); fill8(5, SUM_HDR_F); ws.getRow(5).height = 20
+  Object.assign(ws.getCell('A5'),{ value:'สรุปยอด', font:{ bold:true, size:11, color:{ argb:'FF334155' } }, fill:SUM_HDR_F, alignment:{ horizontal:'center' } })
+
+  // ── Rows 6–9: Summary data ──
   ;[
-    [5, 'สรุปยอด',          'จำนวนเงิน',   false, true ],
-    [6, 'ยอดใบแจ้งหนี้รวม', invoiceTotal,   true,  false],
-    [7, 'รับชำระแล้ว',      approvedPaid,   true,  false],
-    [8, 'ค่าปรับที่รับแล้ว', approvedPenalty, true, false],
-    [9, 'คงค้าง',           balance,         true,  false],
-  ].forEach(([rowNum, label, val, isNum, isHdr]) => {
-    const fill = isHdr ? SUM_HDR : SUM_ROW
+    [6, 'ยอดใบแจ้งหนี้รวม', invoiceTotal   ],
+    [7, 'รับชำระแล้ว',       approvedPaid   ],
+    [8, 'ค่าปรับที่รับแล้ว', approvedPenalty],
+    [9, 'คงค้าง',            balance        ],
+  ].forEach(([rowNum, label, val]) => {
+    fill8(rowNum, SUM_F); ws.getRow(rowNum).height = 18
+    ws.mergeCells(rowNum, 1, rowNum, 2)
     const r = ws.getRow(rowNum)
-    r.height = 18
-    for (let c = 1; c <= CC; c++) r.getCell(c).fill = fill
-    r.getCell(1).value = label; r.getCell(1).font = { bold: true, size: 12 }
-    r.getCell(2).value = val;   r.getCell(2).font = { bold: isHdr, size: 12 }
-    if (isNum) { r.getCell(2).numFmt = '#,##0.00'; r.getCell(2).alignment = { horizontal: 'right' } }
+    Object.assign(r.getCell(1),{ value:label, font:{ bold:true, size:11 }, fill:SUM_F })
+    Object.assign(r.getCell(3),{ value:val, numFmt:'#,##0.00', font:{ size:11 }, fill:SUM_F, alignment:{ horizontal:'right' } })
+    for (let c = 4; c <= 8; c++) r.getCell(c).fill = SUM_F
   })
 
   // ── Row 10: spacer ──
   ws.getRow(10).height = 6
 
-  // ── Row 11: Column headers ──
-  const HDR_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF334155' } }
-  const hdrBorder = { style: 'thin', color: { argb: 'FF475569' } }
-  const hdrRow = ws.getRow(11)
-  hdrRow.height = 22
-  COLS.forEach((col, i) => {
-    const cell = hdrRow.getCell(i + 1)
-    cell.value = col.header
-    cell.font  = { bold: true, size: 12, color: { argb: 'FFFFFFFF' } }
-    cell.fill  = HDR_FILL
-    cell.alignment = { horizontal: 'center', vertical: 'middle' }
-    cell.border = { top: hdrBorder, bottom: hdrBorder, left: hdrBorder, right: hdrBorder }
+  // ── Row 11: Section header ──
+  ws.mergeCells('A11:H11'); fill8(11, SEC_F); ws.getRow(11).height = 20
+  Object.assign(ws.getCell('A11'),{ value:'รายละเอียดการชำระเงิน', font:{ bold:true, size:11, color:{ argb:'FFFFFFFF' } }, fill:SEC_F, alignment:{ horizontal:'center' } })
+
+  // ── Row 12: Column headers ──
+  fill8(12, HDR_F); ws.getRow(12).height = 20
+  ;['ลำดับ','วันที่ออก','งวด/รายการ','เลขที่ Invoice','อาคาร/ห้อง','ยอดสุทธิ','รับชำระ','คงเหลือ'].forEach((h,i) => {
+    const cell = ws.getRow(12).getCell(i+1)
+    Object.assign(cell,{ value:h, font:{ bold:true, size:11, color:{ argb:'FFFFFFFF' } }, fill:HDR_F,
+      alignment:{ horizontal: i>=5?'right':'center', vertical:'middle' },
+      border:{ bottom: thin },
+    })
   })
 
   // ── Data rows ──
-  const NUM_CI    = [8, 10, 11, 14, 17]
-  const CENTER_CI = [1, 9]
-  const hairLine  = { style: 'hair', color: { argb: 'FFE2E8F0' } }
   let index = 1
+  let totF = 0, totP = 0, totB = 0
 
   for (const inv of invoices) {
-    const payments = inv.payments?.length ? inv.payments : [null]
-    const invoiceBalance = Math.max(0, N(inv.total_amount) - sumApprovedBasePayments(inv.payments ?? []))
+    const allP = inv.payments ?? []
+    const approvedP = allP.filter(p => p.status === 'approved')
+    const invBalance = Math.max(0, N(inv.total_amount) - sumApprovedBasePayments(allP))
+    const invPaid    = approvedP.reduce((s,p) => s + N(p.amount), 0)
+    totF += N(inv.total_amount); totP += invPaid; totB += invBalance
 
-    for (const p of payments) {
-      const penalty = N(p?.penalty_amount)
-      const rowFill = { type: 'pattern', pattern: 'solid', fgColor: { argb: index % 2 === 0 ? 'FFF8FAFC' : 'FFFFFFFF' } }
+    // Invoice main row
+    const invRow = ws.addRow([ index++, inv.issue_date ? formatThaiDate(inv.issue_date) : '',
+      invDesc(inv), inv.invoice_number ?? '',
+      [inv.rooms?.buildings?.name, inv.rooms?.room_number].filter(Boolean).join(' / '),
+      N(inv.total_amount), invPaid, invBalance,
+    ])
+    invRow.height = 22
+    invRow.eachCell({ includeEmpty:true }, (cell, ci) => {
+      cell.fill = INV_F; cell.font = { size:11, bold: ci===1 }
+      cell.border = { top: thin, bottom: hair }
+      if (ci >= 6) { cell.numFmt = '#,##0.00'; cell.alignment = { horizontal:'right', vertical:'middle' } }
+      if (ci === 1) cell.alignment = { horizontal:'center', vertical:'middle' }
+    })
 
-      const dataRow = ws.addRow([
-        index++,
-        inv.issue_date  ? formatThaiDate(inv.issue_date)  : '',
-        inv.due_date    ? formatThaiDate(inv.due_date)    : '',
-        invDesc(inv),
-        inv.invoice_number ?? '',
-        inv.contracts?.contract_number ?? '',
-        [inv.rooms?.buildings?.name, inv.rooms?.room_number].filter(Boolean).join(' / '),
-        N(inv.total_amount),
-        p?.penalty_days ?? 0,
-        penalty,
-        N(inv.total_amount) + penalty,
-        p?.paid_date ? formatThaiDate(p.paid_date) : '',
-        p?.id ?? '',
-        N(p?.amount),
-        inv.status ?? '',
-        p?.status ?? '',
-        invoiceBalance,
-        p?.bank_reference ?? '',
-        p?.profiles?.full_name ?? '',
-        [inv.note, p?.note].filter(Boolean).join(' | '),
-      ])
+    // Payment sub-rows
+    for (const p of allP) {
+      const dueStr  = inv.due_date  ? `ครบกำหนด: ${formatThaiDate(inv.due_date)}`  : ''
+      const paidStr = p.paid_date   ? `ชำระ: ${formatThaiDate(p.paid_date)}`       : ''
+      const dateStr = [dueStr, paidStr].filter(Boolean).join('  ')
+      const stStr   = [inv.status, p.status].filter(Boolean).join(' / ')
+      const noteStr = [
+        p.bank_reference  ? `Ref: ${p.bank_reference}` : '',
+        p.profiles?.full_name ? `ผู้บันทึก: ${p.profiles.full_name}` : '',
+        [inv.note, p.note].filter(Boolean).join(' | '),
+      ].filter(Boolean).join('  |  ')
 
-      dataRow.height = 18
-      dataRow.eachCell({ includeEmpty: true }, cell => {
-        cell.font   = { size: 11 }
-        cell.fill   = rowFill
-        cell.border = { bottom: hairLine, right: hairLine }
-      })
-      NUM_CI.forEach(ci    => { dataRow.getCell(ci).numFmt = '#,##0.00'; dataRow.getCell(ci).alignment = { horizontal: 'right' } })
-      CENTER_CI.forEach(ci => { dataRow.getCell(ci).alignment = { horizontal: 'center' } })
+      // Payment detail sub-row
+      const pr = ws.addRow([])
+      const prn = pr.number
+      ws.mergeCells(prn, 2, prn, 3); ws.mergeCells(prn, 4, prn, 5)
+      pr.height = 17
+      fill8(prn, PAY_F)
+      const payFont = { size:10, italic:true, color:{ argb:'FF64748B' } }
+      Object.assign(pr.getCell(2),{ value:dateStr,  font:payFont, fill:PAY_F })
+      Object.assign(pr.getCell(4),{ value:`สถานะ: ${stStr}`, font:payFont, fill:PAY_F })
+      Object.assign(pr.getCell(6),{ value:N(p.amount)-N(p.penalty_amount), numFmt:'#,##0.00', font:{ size:10, color:{ argb:'FF374151' } }, fill:PAY_F, alignment:{ horizontal:'right' } })
+      Object.assign(pr.getCell(7),{ value:N(p.amount), numFmt:'#,##0.00', font:{ size:10, color:{ argb:'FF374151' } }, fill:PAY_F, alignment:{ horizontal:'right' } })
+      for (const ci of [1,3,5,8]) pr.getCell(ci).fill = PAY_F
+
+      // Note sub-row
+      if (noteStr) {
+        const nr = ws.addRow([])
+        const nrn = nr.number
+        ws.mergeCells(nrn, 2, nrn, 8)
+        nr.height = 15; fill8(nrn, NOTE_F)
+        Object.assign(nr.getCell(2),{ value:noteStr, font:{ size:9, color:{ argb:'FF6B7280' } }, fill:NOTE_F, alignment:{ horizontal:'left', vertical:'middle', wrapText:false } })
+        nr.getCell(1).fill = NOTE_F
+      }
+    }
+
+    // If no payments, show due date + status
+    if (allP.length === 0) {
+      const pr = ws.addRow([])
+      const prn = pr.number
+      ws.mergeCells(prn, 2, prn, 3); ws.mergeCells(prn, 4, prn, 8)
+      pr.height = 15; fill8(prn, NOTE_F)
+      Object.assign(pr.getCell(2),{ value: inv.due_date ? `ครบกำหนด: ${formatThaiDate(inv.due_date)}` : '', font:{ size:10, color:{ argb:'FF9CA3AF' } }, fill:NOTE_F })
+      Object.assign(pr.getCell(4),{ value:`สถานะ: ${inv.status}`, font:{ size:10, color:{ argb:'FF9CA3AF' } }, fill:NOTE_F })
     }
   }
+
+  // ── Total row ──
+  const tr = ws.addRow([])
+  const trn = tr.number
+  ws.mergeCells(trn, 1, trn, 5); fill8(trn, TOTAL_F); tr.height = 20
+  Object.assign(tr.getCell(1),{ value:'รวมทั้งสิ้น', font:{ bold:true, size:11 }, fill:TOTAL_F, alignment:{ horizontal:'center' } })
+  ;[[6,totF],[7,totP],[8,totB]].forEach(([ci,v]) => {
+    Object.assign(tr.getCell(ci),{ value:v, numFmt:'#,##0.00', font:{ bold:true, size:11 }, fill:TOTAL_F, alignment:{ horizontal:'right' } })
+  })
 
   // ── Page setup ──
   ws.pageSetup.paperSize   = 9
   ws.pageSetup.orientation = 'landscape'
-  ws.pageSetup.fitToPage   = true
-  ws.pageSetup.fitToWidth  = 1
-  ws.pageSetup.fitToHeight = 0
-  ws.pageSetup.margins = { left: 0.5, right: 0.5, top: 0.75, bottom: 0.75, header: 0.3, footer: 0.3 }
+  ws.pageSetup.scale       = 92
+  ws.pageSetup.horizontalCentered = true
+  ws.pageSetup.margins = { left: 0.25, right: 0.25, top: 0.75, bottom: 0.75, header: 0.3, footer: 0.3 }
   ws.headerFooter.oddHeader = `&L&"Arial,Bold"${tenant?.full_name ?? ''}&R${contractLabel}`
   ws.headerFooter.oddFooter = `&LAssetCare&C&P / &N&R&D`
-  ws.views = [{ state: 'frozen', xSplit: 0, ySplit: 11, topLeftCell: 'A12', activeCell: 'A12' }]
+  ws.views = [{ state: 'frozen', xSplit: 0, ySplit: 12, topLeftCell: 'A13', activeCell: 'A13' }]
 
   // ── Download ──
   const buffer = await wb.xlsx.writeBuffer()
