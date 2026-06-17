@@ -1,6 +1,6 @@
--- Replace hardcoded anon key in LINE notify cron jobs with current_setting()
--- Same pattern used by telegram_internal_notifications (migration 67)
--- To set the key: ALTER DATABASE postgres SET "app.settings.anon_key" = '<anon_key>';
+-- Replace hardcoded anon key in LINE notify cron jobs with settings table lookup
+-- Same pattern: store sensitive config in settings table, not in SQL code
+-- Run once to seed: INSERT INTO settings(key,value) VALUES ('anon_key', '"<anon_key>"');
 
 select cron.unschedule('line_notify_invoice_1st');
 select cron.unschedule('line_notify_reminder_5th');
@@ -15,7 +15,7 @@ select cron.schedule(
       url     := 'https://qpofehctnesewbgugqvd.supabase.co/functions/v1/line-notify',
       headers := json_build_object(
         'Content-Type', 'application/json',
-        'Authorization', 'Bearer ' || current_setting('app.settings.anon_key', true)
+        'Authorization', 'Bearer ' || (SELECT value #>> '{}' FROM settings WHERE key = 'anon_key')
       )::text,
       body    := '{"type":"invoice"}'::text
     );
@@ -30,7 +30,7 @@ select cron.schedule(
       url     := 'https://qpofehctnesewbgugqvd.supabase.co/functions/v1/line-notify',
       headers := json_build_object(
         'Content-Type', 'application/json',
-        'Authorization', 'Bearer ' || current_setting('app.settings.anon_key', true)
+        'Authorization', 'Bearer ' || (SELECT value #>> '{}' FROM settings WHERE key = 'anon_key')
       )::text,
       body    := '{"type":"reminder"}'::text
     );
@@ -45,7 +45,7 @@ select cron.schedule(
       url     := 'https://qpofehctnesewbgugqvd.supabase.co/functions/v1/line-notify',
       headers := json_build_object(
         'Content-Type', 'application/json',
-        'Authorization', 'Bearer ' || current_setting('app.settings.anon_key', true)
+        'Authorization', 'Bearer ' || (SELECT value #>> '{}' FROM settings WHERE key = 'anon_key')
       )::text,
       body    := '{"type":"contract_expiry","days_before":30}'::text
     );
@@ -60,7 +60,7 @@ select cron.schedule(
       url     := 'https://qpofehctnesewbgugqvd.supabase.co/functions/v1/line-notify',
       headers := json_build_object(
         'Content-Type', 'application/json',
-        'Authorization', 'Bearer ' || current_setting('app.settings.anon_key', true)
+        'Authorization', 'Bearer ' || (SELECT value #>> '{}' FROM settings WHERE key = 'anon_key')
       )::text,
       body    := '{"type":"contract_expiry","days_before":7}'::text
     );
