@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate, useSearchParams, Link } from 'react-router-dom'
 import { ChevronRight, Save, Plus, Trash2, Car, Check, X, Download, Loader2 } from 'lucide-react'
-import * as XLSX from 'xlsx'
 import { supabase } from '../../lib/supabase'
 import Button from '../../components/ui/Button'
 import Card from '../../components/ui/Card'
@@ -48,27 +47,130 @@ function sumApprovedBasePayments(payments = []) {
     .reduce((sum, p) => sum + Math.max(0, N(p.amount) - N(p.penalty_amount)), 0)
 }
 
-function saveCustomerPaymentCardXlsx({ tenant, contractLabel, invoices }) {
+async function saveCustomerPaymentCardXlsx({ tenant, contractLabel, invoices }) {
   const activeInvoices = invoices.filter(inv => !['cancelled', 'rejected'].includes(inv.status))
   const approvedPayments = activeInvoices.flatMap(inv => (inv.payments ?? []).filter(p => p.status === 'approved'))
-  const invoiceTotal = activeInvoices.reduce((sum, inv) => sum + N(inv.total_amount), 0)
+  const invoiceTotal    = activeInvoices.reduce((sum, inv) => sum + N(inv.total_amount), 0)
   const approvedBasePaid = approvedPayments.reduce((sum, p) => sum + Math.max(0, N(p.amount) - N(p.penalty_amount)), 0)
-  const approvedPenalty = approvedPayments.reduce((sum, p) => sum + N(p.penalty_amount), 0)
-  const approvedPaid = approvedPayments.reduce((sum, p) => sum + N(p.amount), 0)
-  const balance = invoiceTotal - approvedBasePaid
+  const approvedPenalty  = approvedPayments.reduce((sum, p) => sum + N(p.penalty_amount), 0)
+  const approvedPaid     = approvedPayments.reduce((sum, p) => sum + N(p.amount), 0)
+  const balance          = invoiceTotal - approvedBasePaid
 
-  const rows = []
+  const ExcelJS = (await import('exceljs')).default
+  const wb = new ExcelJS.Workbook()
+  wb.creator = 'AssetCare'
+  const ws = wb.addWorksheet('Customer Card')
+
+  const COLS = [
+    { header: 'ลำดับ',           width: 7  },
+    { header: 'วันที่ใบแจ้งหนี้', width: 16 },
+    { header: 'วันครบกำหนด',     width: 16 },
+    { header: 'งวด/รายการ',      width: 24 },
+    { header: 'เลขที่ Invoice',   width: 18 },
+    { header: 'เลขที่สัญญา',     width: 18 },
+    { header: 'อาคาร/ห้อง',      width: 18 },
+    { header: 'ยอดเรียกเก็บ',    width: 14 },
+    { header: 'วันปรับ',          width: 9  },
+    { header: 'ค่าปรับ',          width: 12 },
+    { header: 'ยอดสุทธิ',         width: 12 },
+    { header: 'วันที่ชำระ',       width: 16 },
+    { header: 'เลขที่ Payment',   width: 36 },
+    { header: 'รับชำระ',          width: 12 },
+    { header: 'สถานะ Invoice',    width: 16 },
+    { header: 'สถานะ Payment',    width: 16 },
+    { header: 'คงเหลือ Invoice',  width: 14 },
+    { header: 'อ้างอิงธนาคาร',   width: 18 },
+    { header: 'ผู้บันทึก',        width: 18 },
+    { header: 'หมายเหตุ',         width: 28 },
+  ]
+  const CC = COLS.length
+  ws.columns = COLS.map(c => ({ width: c.width }))
+
+  // ── Row 1: Title ──
+  ws.mergeCells(1, 1, 1, CC)
+  const titleCell = ws.getCell('A1')
+  titleCell.value = 'Customer Payment Card'
+  titleCell.font  = { bold: true, size: 18, color: { argb: 'FFFFFFFF' } }
+  titleCell.fill  = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF1E3A5F' } }
+  titleCell.alignment = { horizontal: 'center', vertical: 'middle' }
+  ws.getRow(1).height = 32
+
+  // ── Rows 2–3: Info ──
+  const INFO_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE8F1FB' } }
+  const fillRow = (rowNum) => { for (let c = 1; c <= CC; c++) ws.getRow(rowNum).getCell(c).fill = INFO_FILL }
+
+  ws.mergeCells(2, 2, 2, 3); ws.mergeCells(2, 5, 2, CC)
+  ws.mergeCells(3, 2, 3, 3); ws.mergeCells(3, 5, 3, CC)
+  fillRow(2); fillRow(3)
+  ;[
+    [2, 'ลูกค้า', tenant?.full_name ?? '', 'เบอร์โทร', tenant?.phone ?? ''],
+    [3, 'สัญญา',  contractLabel,           'Export เมื่อ', formatThaiDate(new Date())],
+  ].forEach(([rowNum, l1, v1, l2, v2]) => {
+    const r = ws.getRow(rowNum)
+    r.height = 20
+    r.getCell(1).value = l1; r.getCell(1).font = { bold: true, size: 12 }
+    r.getCell(2).value = v1; r.getCell(2).font = { size: 12 }
+    r.getCell(4).value = l2; r.getCell(4).font = { bold: true, size: 12 }
+    r.getCell(5).value = v2; r.getCell(5).font = { size: 12 }
+  })
+
+  // ── Row 4: spacer ──
+  ws.getRow(4).height = 6
+
+  // ── Rows 5–9: Summary ──
+  const SUM_HDR = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE2E8F0' } }
+  const SUM_ROW = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF8FAFC' } }
+  ;[
+    [5, 'สรุปยอด',          'จำนวนเงิน',   false, true ],
+    [6, 'ยอดใบแจ้งหนี้รวม', invoiceTotal,   true,  false],
+    [7, 'รับชำระแล้ว',      approvedPaid,   true,  false],
+    [8, 'ค่าปรับที่รับแล้ว', approvedPenalty, true, false],
+    [9, 'คงค้าง',           balance,         true,  false],
+  ].forEach(([rowNum, label, val, isNum, isHdr]) => {
+    const fill = isHdr ? SUM_HDR : SUM_ROW
+    const r = ws.getRow(rowNum)
+    r.height = 18
+    for (let c = 1; c <= CC; c++) r.getCell(c).fill = fill
+    r.getCell(1).value = label; r.getCell(1).font = { bold: true, size: 12 }
+    r.getCell(2).value = val;   r.getCell(2).font = { bold: isHdr, size: 12 }
+    if (isNum) { r.getCell(2).numFmt = '#,##0.00'; r.getCell(2).alignment = { horizontal: 'right' } }
+  })
+
+  // ── Row 10: spacer ──
+  ws.getRow(10).height = 6
+
+  // ── Row 11: Column headers ──
+  const HDR_FILL = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF334155' } }
+  const hdrBorder = { style: 'thin', color: { argb: 'FF475569' } }
+  const hdrRow = ws.getRow(11)
+  hdrRow.height = 22
+  COLS.forEach((col, i) => {
+    const cell = hdrRow.getCell(i + 1)
+    cell.value = col.header
+    cell.font  = { bold: true, size: 12, color: { argb: 'FFFFFFFF' } }
+    cell.fill  = HDR_FILL
+    cell.alignment = { horizontal: 'center', vertical: 'middle' }
+    cell.border = { top: hdrBorder, bottom: hdrBorder, left: hdrBorder, right: hdrBorder }
+  })
+
+  // ── Data rows ──
+  const NUM_CI    = [8, 10, 11, 14, 17]
+  const CENTER_CI = [1, 9]
+  const hairLine  = { style: 'hair', color: { argb: 'FFE2E8F0' } }
   let index = 1
+
   for (const inv of invoices) {
     const payments = inv.payments?.length ? inv.payments : [null]
     const invoiceBalance = Math.max(0, N(inv.total_amount) - sumApprovedBasePayments(inv.payments ?? []))
 
     for (const p of payments) {
       const penalty = N(p?.penalty_amount)
-      rows.push([
+      const rowFill = { type: 'pattern', pattern: 'solid', fgColor: { argb: index % 2 === 0 ? 'FFF8FAFC' : 'FFFFFFFF' } }
+
+      const dataRow = ws.addRow([
         index++,
-        inv.issue_date ? formatThaiDate(inv.issue_date) : '',
-        inv.due_date ? formatThaiDate(inv.due_date) : '',
+        inv.issue_date  ? formatThaiDate(inv.issue_date)  : '',
+        inv.due_date    ? formatThaiDate(inv.due_date)    : '',
         invDesc(inv),
         inv.invoice_number ?? '',
         inv.contracts?.contract_number ?? '',
@@ -87,69 +189,37 @@ function saveCustomerPaymentCardXlsx({ tenant, contractLabel, invoices }) {
         p?.profiles?.full_name ?? '',
         [inv.note, p?.note].filter(Boolean).join(' | '),
       ])
+
+      dataRow.height = 18
+      dataRow.eachCell({ includeEmpty: true }, cell => {
+        cell.font   = { size: 11 }
+        cell.fill   = rowFill
+        cell.border = { bottom: hairLine, right: hairLine }
+      })
+      NUM_CI.forEach(ci    => { dataRow.getCell(ci).numFmt = '#,##0.00'; dataRow.getCell(ci).alignment = { horizontal: 'right' } })
+      CENTER_CI.forEach(ci => { dataRow.getCell(ci).alignment = { horizontal: 'center' } })
     }
   }
 
-  const aoa = [
-    ['Customer Payment Card'],
-    ['ลูกค้า', tenant?.full_name ?? '', 'เบอร์โทร', tenant?.phone ?? ''],
-    ['สัญญา', contractLabel, 'Export เมื่อ', formatThaiDate(new Date())],
-    [],
-    ['สรุปยอด', 'จำนวนเงิน'],
-    ['ยอดใบแจ้งหนี้รวม', invoiceTotal],
-    ['รับชำระแล้ว', approvedPaid],
-    ['ค่าปรับที่รับแล้ว', approvedPenalty],
-    ['คงค้าง', balance],
-    [],
-    [
-      'ลำดับ',
-      'วันที่ใบแจ้งหนี้',
-      'วันที่ครบกำหนด',
-      'งวด/รายการ',
-      'เลขที่ Invoice',
-      'เลขที่สัญญา',
-      'อาคาร/ห้อง',
-      'ยอดเรียกเก็บ',
-      'วันปรับ',
-      'ค่าปรับ',
-      'ยอดสุทธิ',
-      'วันที่ชำระ',
-      'เลขที่ Payment',
-      'รับชำระ',
-      'สถานะ Invoice',
-      'สถานะ Payment',
-      'คงเหลือ Invoice',
-      'อ้างอิงธนาคาร',
-      'ผู้บันทึก',
-      'หมายเหตุ',
-    ],
-    ...rows,
-  ]
+  // ── Page setup ──
+  ws.pageSetup.paperSize   = 9
+  ws.pageSetup.orientation = 'landscape'
+  ws.pageSetup.fitToPage   = true
+  ws.pageSetup.fitToWidth  = 1
+  ws.pageSetup.fitToHeight = 0
+  ws.pageSetup.printTitlesRow = '$1:$11'
+  ws.pageSetup.margins = { left: 0.5, right: 0.5, top: 0.75, bottom: 0.75, header: 0.3, footer: 0.3 }
+  ws.headerFooter.oddHeader = `&L&"Arial,Bold"${tenant?.full_name ?? ''}&R${contractLabel}`
+  ws.headerFooter.oddFooter = `&L&"Arial,Regular"AssetCare&Cหน้า &P / &N&R&D`
+  ws.views = [{ state: 'frozen', xSplit: 0, ySplit: 11, activeCell: 'A12' }]
 
-  const ws = XLSX.utils.aoa_to_sheet(aoa)
-  ws['!merges'] = [{ s: { r: 0, c: 0 }, e: { r: 0, c: 19 } }]
-  ws['!cols'] = [
-    { wch: 7 }, { wch: 16 }, { wch: 16 }, { wch: 24 }, { wch: 18 },
-    { wch: 18 }, { wch: 22 }, { wch: 14 }, { wch: 9 }, { wch: 12 },
-    { wch: 12 }, { wch: 16 }, { wch: 36 }, { wch: 12 }, { wch: 16 },
-    { wch: 16 }, { wch: 14 }, { wch: 18 }, { wch: 18 }, { wch: 28 },
-  ]
-  ws['!freeze'] = { xSplit: 0, ySplit: 11 }
-
-  for (let r = 6; r <= 9; r++) {
-    const cell = ws[`B${r}`]
-    if (cell) cell.z = '#,##0.00'
-  }
-  for (let r = 12; r < aoa.length + 1; r++) {
-    for (const col of ['H', 'J', 'K', 'N', 'Q']) {
-      const cell = ws[`${col}${r}`]
-      if (cell) cell.z = '#,##0.00'
-    }
-  }
-
-  const wb = XLSX.utils.book_new()
-  XLSX.utils.book_append_sheet(wb, ws, 'Customer Card')
-  XLSX.writeFile(wb, `customer_card_${safeFileName(tenant?.full_name)}.xlsx`)
+  // ── Download ──
+  const buffer = await wb.xlsx.writeBuffer()
+  const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+  const url  = URL.createObjectURL(blob)
+  const a    = document.createElement('a')
+  a.href = url; a.download = `customer_card_${safeFileName(tenant?.full_name)}.xlsx`; a.click()
+  URL.revokeObjectURL(url)
 }
 
 const TABS = [
@@ -290,7 +360,7 @@ export default function TenantDetailPage() {
         payments: [...(inv.payments ?? [])].sort((a, b) => String(a.paid_date ?? '').localeCompare(String(b.paid_date ?? ''))),
       }))
 
-      saveCustomerPaymentCardXlsx({ tenant, contractLabel, invoices })
+      await saveCustomerPaymentCardXlsx({ tenant, contractLabel, invoices })
     } catch (err) {
       alert(`Export ไม่สำเร็จ: ${err.message}`)
     } finally {
