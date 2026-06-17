@@ -5,12 +5,13 @@ import { supabase } from '../../lib/supabase'
 const LIFF_ID = import.meta.env.VITE_LIFF_ID
 
 export default function LineRegisterPage() {
-  const [step,    setStep]    = useState('loading') // loading | form | success | error | already
+  const [step,        setStep]        = useState('loading') // loading | form | success | error | already
   const [lineProfile, setLineProfile] = useState(null)
-  const [phone,   setPhone]   = useState('')
-  const [roomNo,  setRoomNo]  = useState('')
-  const [saving,  setSaving]  = useState(false)
-  const [errMsg,  setErrMsg]  = useState('')
+  const [accessToken, setAccessToken] = useState('')
+  const [phone,       setPhone]       = useState('')
+  const [roomNo,      setRoomNo]      = useState('')
+  const [saving,      setSaving]      = useState(false)
+  const [errMsg,      setErrMsg]      = useState('')
 
   useEffect(() => {
     async function initLiff() {
@@ -21,20 +22,16 @@ export default function LineRegisterPage() {
           return
         }
         const profile = await liff.getProfile()
+        const token   = liff.getAccessToken()
         setLineProfile(profile)
+        setAccessToken(token)
 
-        // เช็คว่าเคยลงทะเบียนแล้วหรือยัง
-        const { data } = await supabase
-          .from('tenants')
-          .select('id')
-          .eq('line_user_id', profile.userId)
-          .maybeSingle()
-
-        if (data) {
-          setStep('already')
-        } else {
-          setStep('form')
-        }
+        // เช็คว่าเคยลงทะเบียนแล้วหรือยัง — ผ่าน Edge Function (service_role)
+        const { data, error } = await supabase.functions.invoke('line-register', {
+          body: { accessToken: token },
+        })
+        if (error) throw new Error(error.message)
+        setStep(data.registered ? 'already' : 'form')
       } catch (e) {
         setErrMsg(e.message || 'เกิดข้อผิดพลาด')
         setStep('error')
@@ -47,42 +44,24 @@ export default function LineRegisterPage() {
     e.preventDefault()
     setSaving(true); setErrMsg('')
 
-    const normalized = phone.replace(/\D/g, '')
-    const room = roomNo.trim()
-
-    // หาสัญญา active ที่เบอร์และเลขห้องตรงกัน
-    const { data: contract, error } = await supabase
-      .from('contracts')
-      .select('id, tenant_id, tenants!inner(id, full_name, line_user_id), rooms!inner(room_number)')
-      .eq('status', 'active')
-      .eq('tenants.phone', normalized)
-      .eq('rooms.room_number', room)
-      .maybeSingle()
-
-    if (error || !contract || !contract.tenants) {
-      setSaving(false)
-      setErrMsg('ไม่พบข้อมูลผู้เช่าที่ตรงกับเบอร์และเลขห้องนี้ กรุณาติดต่อเจ้าหน้าที่')
-      return
-    }
-
-    const tenant = contract.tenants
-
-    if (tenant.line_user_id) {
-      setSaving(false)
-      setErrMsg('เบอร์นี้ผูก LINE แล้ว หากต้องการเปลี่ยนกรุณาติดต่อเจ้าหน้าที่')
-      return
-    }
-
-    const { error: updateErr } = await supabase
-      .from('tenants')
-      .update({ line_user_id: lineProfile.userId })
-      .eq('id', tenant.id)
+    const { data, error } = await supabase.functions.invoke('line-register', {
+      body: { accessToken, phone, roomNumber: roomNo },
+    })
 
     setSaving(false)
-    if (updateErr) {
-      setErrMsg('บันทึกไม่สำเร็จ กรุณาลองใหม่')
+
+    if (error || data?.error) {
+      const code = data?.error ?? error?.message
+      if (code === 'tenant_not_found') {
+        setErrMsg('ไม่พบข้อมูลผู้เช่าที่ตรงกับเบอร์และเลขห้องนี้ กรุณาติดต่อเจ้าหน้าที่')
+      } else if (code === 'already_linked') {
+        setErrMsg('เบอร์นี้ผูก LINE แล้ว หากต้องการเปลี่ยนกรุณาติดต่อเจ้าหน้าที่')
+      } else {
+        setErrMsg('บันทึกไม่สำเร็จ กรุณาลองใหม่')
+      }
       return
     }
+
     setStep('success')
   }
 
@@ -139,7 +118,6 @@ export default function LineRegisterPage() {
   return (
     <div className="flex min-h-screen items-center justify-center bg-white p-6">
       <div className="w-full max-w-sm">
-        {/* Header */}
         <div className="mb-6 text-center">
           {lineProfile?.pictureUrl && (
             <img src={lineProfile.pictureUrl} alt="" className="mx-auto mb-3 h-16 w-16 rounded-full" />
@@ -148,7 +126,6 @@ export default function LineRegisterPage() {
           <p className="mt-1 text-sm text-gray-500">กรอกเบอร์โทรศัพท์ที่ลงทะเบียนกับระบบเพื่อผูกบัญชี LINE</p>
         </div>
 
-        {/* Form */}
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <div>
             <label className="mb-1 block text-sm font-medium text-gray-700">เลขห้อง</label>
