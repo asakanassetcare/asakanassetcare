@@ -1,8 +1,0 @@
-สิ่งที่ควรทำต่อ (เรียงตาม impact)
-Priority	งาน	เหตุผล
-1	ตรวจ trigger on_move_out_approved ว่ายังติดอยู่หรือเปล่า	ถ้าติดอยู่ contract status อาจผิด
-2	แสดง LINE status บน TenantDetailPage	staff ไม่รู้ว่าผู้เช่าไหน link LINE แล้ว
-3	Thumbnail จริงแทน ImageIcon ในแท็บ "สลิป LINE"	ตอนนี้ต้องคลิกทุกรูปถึงเห็น
-4	แสดง penalty breakdown ในหน้า pay modal	staff เห็นแค่ grand total ไม่รู้มีค่าปรับเท่าไร
-5	LIFF ID ใน LineSlipPage hardcode แทนที่จะใช้ VITE_LIFF_ID	inconsistent กับ LineRegisterPage
-สิ่งที่ impact จริงที่สุดคือ #1 (correctness) และ #2 (usability ของ LINE feature ที่เพิ่งทำ) จะเริ่มตรงไหนก่อนดีครับ?

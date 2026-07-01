@@ -36,18 +36,46 @@ function addDays(dateStr: string, days: number) {
   return d.toISOString().slice(0, 10)
 }
 
-async function pushLine(userId: string, messages: unknown[], token: string) {
-  const res = await fetch(LINE_PUSH_API, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-    body: JSON.stringify({ to: userId, messages }),
-  })
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}))
-    console.error(`LINE push failed [${userId}] status=${res.status}`, JSON.stringify(err))
-  } else {
+type PushResult = {
+  ok: boolean
+  userId: string
+  status?: number
+  error?: unknown
+}
+
+async function pushLine(userId: string, messages: unknown[], token: string): Promise<PushResult> {
+  try {
+    const res = await fetch(LINE_PUSH_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+      body: JSON.stringify({ to: userId, messages }),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      console.error(`LINE push failed [${userId}] status=${res.status}`, JSON.stringify(err))
+      return { ok: false, userId, status: res.status, error: err }
+    }
     console.log(`LINE push ok [${userId}]`)
+    return { ok: true, userId, status: res.status }
+  } catch (err) {
+    console.error(`LINE push error [${userId}]`, err)
+    return { ok: false, userId, error: err instanceof Error ? err.message : err }
   }
+}
+
+function notifyResponse(result: { sent: number; failed: PushResult[]; skipped?: number; found?: number }) {
+  return Response.json({
+    ok: result.failed.length === 0,
+    sent: result.sent,
+    failed: result.failed.length,
+    skipped: result.skipped ?? 0,
+    found: result.found,
+    errors: result.failed.map((f) => ({
+      userId: f.userId,
+      status: f.status,
+      error: f.error,
+    })),
+  }, { status: result.failed.length > 0 ? 207 : 200 })
 }
 
 function invoiceLabel(inv: any) {
@@ -215,20 +243,28 @@ Deno.serve(async (req) => {
   const ratePerDay  = Number(settingRow?.value?.penalty_rate_per_day ?? 100)
 
   // ดึง invoice ที่ค้างอยู่ทั้งหมด (ทุก type ทุกเดือน)
-  const { data: invoices } = await supabase
+  const { data: invoices, error: invoiceError } = await supabase
     .from('invoices')
     .select(`
-      id, invoice_number, invoice_type, billing_period, total_amount, due_date,
+      id, invoice_number, invoice_type, billing_period, total_amount, due_date, room_id,
       rooms(room_number, buildings(name)),
       tenants(id, line_user_id, full_name)
     `)
     .in('status', ['pending', 'overdue'])
 
+  if (invoiceError) {
+    return Response.json({ ok: false, error: invoiceError.message }, { status: 500 })
+  }
+
   // Group by (line_user_id + room_id) → แต่ละห้องได้ Flex Message แยกกัน
   const byRoom = new Map<string, { userId: string; name: string; roomName: string; invoices: any[] }>()
+  let skipped = 0
   for (const inv of invoices ?? []) {
     const userId = inv.tenants?.line_user_id
-    if (!userId) continue
+    if (!userId) {
+      skipped++
+      continue
+    }
     const roomId  = inv.room_id ?? inv.rooms?.room_number ?? 'unknown'
     const key     = `${userId}__${roomId}`
     const roomName = `${inv.rooms?.buildings?.name ?? ''} ห้อง ${inv.rooms?.room_number ?? ''}`
@@ -320,11 +356,11 @@ Deno.serve(async (req) => {
             } : {}),
           },
         }
-        await pushLine(userId, [flex], token)
-        return Response.json({ ok: true, sent: 1 })
+        const result = await pushLine(userId, [flex], token)
+        return notifyResponse({ sent: result.ok ? 1 : 0, failed: result.ok ? [] : [result], found: 1 })
       }
     }
-    return Response.json({ ok: true, sent: 0 })
+    return notifyResponse({ sent: 0, failed: [], skipped: 1, found: 0 })
   }
 
   if (type === 'contract_expiry') {
@@ -343,9 +379,13 @@ Deno.serve(async (req) => {
       .eq('status', 'active')
       .eq('contract_end_date', targetStr)
 
+    const failed: PushResult[] = []
     for (const c of contracts ?? []) {
       const userId = c.tenants?.line_user_id
-      if (!userId) continue
+      if (!userId) {
+        skipped++
+        continue
+      }
 
       const tenantName = c.tenants.full_name ?? ''
       const roomName   = `${c.rooms?.buildings?.name ?? ''} ห้อง ${c.rooms?.room_number ?? ''}`
@@ -395,20 +435,25 @@ Deno.serve(async (req) => {
           },
         },
       }
-      await pushLine(userId, [flex], token)
-      sent++
+      const result = await pushLine(userId, [flex], token)
+      if (result.ok) sent++
+      else failed.push(result)
     }
-    return Response.json({ ok: true, sent })
+    return notifyResponse({ sent, failed, skipped, found: contracts?.length ?? 0 })
   }
 
   if (type === 'invoice') {
+    const failed: PushResult[] = []
     for (const { userId, name, roomName, invoices: roomInvoices } of byRoom.values()) {
-      await pushLine(userId, [buildSummaryFlex(`${name} · ${roomName}`, roomInvoices, bank, ratePerDay, today)], token)
-      sent++
+      const result = await pushLine(userId, [buildSummaryFlex(`${name} · ${roomName}`, roomInvoices, bank, ratePerDay, today)], token)
+      if (result.ok) sent++
+      else failed.push(result)
     }
+    return notifyResponse({ sent, failed, skipped, found: invoices?.length ?? 0 })
   }
 
   if (type === 'reminder') {
+    const failed: PushResult[] = []
     for (const { userId, roomName, invoices: roomInvoices } of byRoom.values()) {
       const subtotal     = roomInvoices.reduce((s, i) => s + Number(i.total_amount), 0)
       const totalPenalty = roomInvoices.reduce((s, i) => s + (
@@ -425,10 +470,12 @@ Deno.serve(async (req) => {
         : `ครบกำหนดวันที่ ${thaiDate(earliestDue)}\nเกินกำหนดชำระแล้ว ${overdueDays(earliestDue, today)} วัน`
       const title = today <= earliestDue ? '⏰ แจ้งเตือนค่าเช่า' : '⚠️ แจ้งเตือนค้างชำระ'
       const text = `${title}\n${roomName}\n${dueLine}\nยอดค้างรวม ฿${grandFmt}${penaltyLine}\nหากชำระแล้วกรุณาแจ้งเจ้าหน้าที่\n📞 080-000-0000`
-      await pushLine(userId, [{ type: 'text', text }], token)
-      sent++
+      const result = await pushLine(userId, [{ type: 'text', text }], token)
+      if (result.ok) sent++
+      else failed.push(result)
     }
+    return notifyResponse({ sent, failed, skipped, found: invoices?.length ?? 0 })
   }
 
-  return Response.json({ ok: true, sent })
+  return Response.json({ ok: false, error: `Unknown notification type: ${type}` }, { status: 400 })
 })
