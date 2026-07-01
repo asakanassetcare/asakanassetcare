@@ -37,11 +37,17 @@ function addDays(dateStr: string, days: number) {
 }
 
 async function pushLine(userId: string, messages: unknown[], token: string) {
-  await fetch(LINE_PUSH_API, {
+  const res = await fetch(LINE_PUSH_API, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
     body: JSON.stringify({ to: userId, messages }),
   })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    console.error(`LINE push failed [${userId}] status=${res.status}`, JSON.stringify(err))
+  } else {
+    console.log(`LINE push ok [${userId}]`)
+  }
 }
 
 function invoiceLabel(inv: any) {
