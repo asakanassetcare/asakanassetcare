@@ -43,6 +43,7 @@ import ApprovalsPage from './pages/ApprovalsPage'
 import ManagePage from './pages/ManagePage'
 import LineRegisterPage from './pages/line/LineRegisterPage'
 import LineSlipPage from './pages/line/LineSlipPage'
+import LineChatPage from './pages/line/LineChatPage'
 
 export default function App() {
   return (
@@ -87,6 +88,7 @@ export default function App() {
               <Route path="owner-transfers" element={<RequireNonService><OwnerTransfersPage /></RequireNonService>} />
               <Route path="move-outs" element={<RequireNonService><MoveOutsPage /></RequireNonService>} />
               <Route path="move-outs/:moveOutId" element={<RequireNonService><MoveOutDetailPage /></RequireNonService>} />
+              <Route path="line-chat" element={<RequireNonService><LineChatPage /></RequireNonService>} />
               <Route path="maintenance" element={<MaintenancePage />} />
               <Route path="maintenance/:maintenanceId" element={<MaintenanceDetailPage />} />
               <Route path="documents" element={<RequireNonService><DocumentsPage /></RequireNonService>} />

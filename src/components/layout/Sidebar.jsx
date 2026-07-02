@@ -4,7 +4,7 @@ import {
   LayoutDashboard, CalendarDays, Building2, DoorOpen,
   Users, UserCircle, CreditCard, Wrench, FolderOpen,
   BarChart3, Bell, Settings, ShieldCheck, ClipboardList,
-  CheckSquare, LayoutList,
+  CheckSquare, LayoutList, MessageCircle,
 } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
@@ -31,6 +31,7 @@ const NAV_ITEMS = [
 
   { to: '/approvals',     label: 'รออนุมัติ',          icon: CheckSquare, approvalOnly: true, noService: true },
   { to: '/payments',      label: 'บัญชี',               icon: CreditCard, accountingOnly: true, noService: true },
+  { to: '/line-chat',     label: 'LINE Chat',          icon: MessageCircle, noService: true },
   { to: '/maintenance',   label: 'แจ้งซ่อม',          icon: Wrench },
 
   { type: 'divider', adminOnly: true },
