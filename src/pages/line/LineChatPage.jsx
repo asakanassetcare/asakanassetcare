@@ -125,29 +125,28 @@ export default function LineChatPage() {
     return () => { supabase.removeChannel(ch) }
   }, [])
 
+  async function loadMessages(convId) {
+    const { data } = await supabase
+      .from('line_messages')
+      .select('*')
+      .eq('conversation_id', convId)
+      .order('created_at')
+    setMessages(data ?? [])
+
+    const ids = [...new Set((data ?? []).filter(m => m.sent_by).map(m => m.sent_by))]
+    if (ids.length > 0) {
+      const { data: profs } = await supabase
+        .from('profiles').select('id, full_name').in('id', ids)
+      const map = {}
+      profs?.forEach(p => { map[p.id] = p.full_name })
+      setSenderNames(map)
+    }
+  }
+
   // Load messages when conversation selected
   useEffect(() => {
     if (!selectedId) { setMessages([]); return }
-
-    async function load() {
-      const { data } = await supabase
-        .from('line_messages')
-        .select('*')
-        .eq('conversation_id', selectedId)
-        .order('created_at')
-      setMessages(data ?? [])
-
-      const ids = [...new Set((data ?? []).filter(m => m.sent_by).map(m => m.sent_by))]
-      if (ids.length > 0) {
-        const { data: profs } = await supabase
-          .from('profiles').select('id, full_name').in('id', ids)
-        const map = {}
-        profs?.forEach(p => { map[p.id] = p.full_name })
-        setSenderNames(map)
-      }
-    }
-
-    load()
+    loadMessages(selectedId)
     markRead(selectedId)
   }, [selectedId])
 
