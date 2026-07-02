@@ -163,9 +163,8 @@ export default function InvoicePDF({ invoice: inv, items = [], company: settings
         {/* Doc meta */}
         <View style={S.introRow}>
           <View style={S.introText}>
-            <Text style={S.introLine}>
-              {k('กรุณาชำระเงินตามรายการด้านล่างภายในวันที่กำหนด หากมีข้อสงสัยกรุณาติดต่อเจ้าหน้าที่')}
-            </Text>
+            <Text style={S.introLine}>{k('กรุณาชำระเงินตามรายการด้านล่างภายในวันที่กำหนด')}</Text>
+            <Text style={S.introLine}>{k('หากมีข้อสงสัยกรุณาติดต่อเจ้าหน้าที่')}</Text>
           </View>
           <View style={S.metaPanel}>
             <View style={S.metaRow}>
