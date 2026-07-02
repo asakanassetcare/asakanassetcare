@@ -111,10 +111,11 @@ function calcPenaltyPDF(inv, ratePerDay) {
   return { days, label: `${fmt(startStr)} – ${fmt(today)} (${days} วัน)`, amount: days * ratePerDay, ratePerDay }
 }
 
-export default function InvoicePDF({ invoice: inv, items = [], company = {} }) {
+export default function InvoicePDF({ invoice: inv, items = [], company: settingsMap = {} }) {
   if (!inv) return null
 
-  const ratePerDay = Number(company?.invoice?.penalty_rate_per_day ?? 100)
+  const company    = settingsMap?.company ?? {}
+  const ratePerDay = Number(settingsMap?.invoice?.penalty_rate_per_day ?? 100)
   const penalty    = calcPenaltyPDF(inv, ratePerDay)
   const discount   = Math.min(Number(inv.penalty_discount ?? 0), penalty?.amount ?? 0)
   const netPenalty = (penalty?.amount ?? 0) - discount
