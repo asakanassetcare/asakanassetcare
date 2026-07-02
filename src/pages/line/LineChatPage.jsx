@@ -181,14 +181,17 @@ export default function LineChatPage() {
   async function send() {
     if (!text.trim() || !selectedId || sending) return
     setSending(true)
+    const msgText = text.trim()
+    setText('')
     try {
       const { error } = await supabase.functions.invoke('line-reply', {
-        body: { conversation_id: selectedId, text: text.trim() },
+        body: { conversation_id: selectedId, text: msgText },
       })
       if (error) throw error
-      setText('')
+      await loadMessages(selectedId)
       inputRef.current?.focus()
     } catch (err) {
+      setText(msgText)
       alert('ส่งข้อความไม่สำเร็จ: ' + (err.message ?? err))
     } finally {
       setSending(false)
