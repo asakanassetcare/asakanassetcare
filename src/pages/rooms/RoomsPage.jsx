@@ -154,7 +154,7 @@ export default function RoomsPage() {
     const { data: invoices } = await supabase
       .from('invoices')
       .select('total_amount, contracts!inner(room_id)')
-      .eq('status', 'overdue')
+      .in('status', ['pending', 'overdue'])
 
     const overdueByRoom = {}
     for (const inv of invoices ?? []) {
