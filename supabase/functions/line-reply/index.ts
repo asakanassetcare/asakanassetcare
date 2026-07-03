@@ -20,8 +20,9 @@ Deno.serve(async (req) => {
     return Response.json({ error: 'unauthorized' }, { status: 401, headers: CORS })
   }
 
-  const { conversation_id, text } = await req.json()
-  if (!conversation_id || !text?.trim()) {
+  const { conversation_id, text, media_url, media_type, preview_url } = await req.json()
+
+  if (!conversation_id || (!text?.trim() && !media_url)) {
     return Response.json({ error: 'invalid_request' }, { status: 400, headers: CORS })
   }
 
@@ -35,10 +36,38 @@ Deno.serve(async (req) => {
     return Response.json({ error: 'conversation_not_found' }, { status: 404, headers: CORS })
   }
 
+  // Build LINE message
+  let lineMessage: Record<string, string>
+  let dbMessageType = 'text'
+  let dbContent: string | null = text?.trim() ?? null
+  let dbMediaUrl: string | null = null
+
+  if (media_url) {
+    dbMediaUrl = media_url
+    dbContent  = null
+    if (media_type === 'video') {
+      dbMessageType = 'video'
+      lineMessage = {
+        type:               'video',
+        originalContentUrl: media_url,
+        previewImageUrl:    preview_url ?? media_url,
+      }
+    } else {
+      dbMessageType = 'image'
+      lineMessage = {
+        type:               'image',
+        originalContentUrl: media_url,
+        previewImageUrl:    media_url,
+      }
+    }
+  } else {
+    lineMessage = { type: 'text', text: text.trim() }
+  }
+
   const pushRes = await fetch(LINE_PUSH_API, {
-    method: 'POST',
+    method:  'POST',
     headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-    body: JSON.stringify({ to: conv.line_user_id, messages: [{ type: 'text', text: text.trim() }] }),
+    body:    JSON.stringify({ to: conv.line_user_id, messages: [lineMessage] }),
   })
 
   if (!pushRes.ok) {
@@ -50,13 +79,15 @@ Deno.serve(async (req) => {
   await supabase.from('line_messages').insert({
     conversation_id,
     direction:    'outbound',
-    message_type: 'text',
-    content:      text.trim(),
+    message_type: dbMessageType,
+    content:      dbContent,
+    media_url:    dbMediaUrl,
     sent_by:      user.id,
   })
 
+  const lastMsg = media_type === 'video' ? '[วิดีโอ]' : (media_url ? '[รูปภาพ]' : text.trim())
   await supabase.from('line_conversations').update({
-    last_message:    text.trim(),
+    last_message:    lastMsg,
     last_message_at: new Date().toISOString(),
     unread_count:    0,
   }).eq('id', conversation_id)

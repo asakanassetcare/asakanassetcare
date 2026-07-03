@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Send, MessageSquare } from 'lucide-react'
+import { Send, MessageSquare, Paperclip, X } from 'lucide-react'
 import { supabase } from '../../lib/supabase'
 
 const MONTHS = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม']
@@ -55,13 +55,25 @@ function ImageMessage({ path }) {
 }
 
 function Bubble({ msg, senderName }) {
-  const isOut = msg.direction === 'outbound'
+  const isOut  = msg.direction === 'outbound'
+  const isMedia = msg.message_type === 'image' || msg.message_type === 'video'
   let body = null
 
   if (msg.message_type === 'text') {
     body = <p className="text-sm whitespace-pre-wrap break-words">{msg.content}</p>
   } else if (msg.message_type === 'image' && msg.media_url) {
-    body = <ImageMessage path={msg.media_url} />
+    body = isOut
+      ? <img src={msg.media_url} alt="รูปภาพ" className="max-w-xs max-h-64 rounded-xl object-contain" />
+      : <ImageMessage path={msg.media_url} />
+  } else if (msg.message_type === 'video' && msg.media_url) {
+    body = (
+      <video
+        src={msg.media_url}
+        controls
+        className="max-w-xs rounded-xl"
+        style={{ maxHeight: '16rem' }}
+      />
+    )
   } else if (msg.message_type === 'sticker' && msg.raw_payload?.packageId) {
     const url = `https://stickershop.line-scdn.net/stickershop/v1/sticker/${msg.raw_payload.stickerId}/ANDROID/sticker.png`
     body = <img src={url} alt="sticker" className="w-24 h-24 object-contain" />
@@ -72,13 +84,15 @@ function Bubble({ msg, senderName }) {
   return (
     <div className={`flex mb-3 ${isOut ? 'justify-end' : 'justify-start'}`}>
       <div className={`flex flex-col ${isOut ? 'items-end' : 'items-start'} max-w-xs lg:max-w-sm`}>
-        <div className={`px-4 py-2.5 rounded-2xl ${
-          isOut
-            ? 'bg-[#06C755] text-white rounded-tr-sm'
-            : 'bg-white border border-gray-100 text-gray-900 rounded-tl-sm shadow-sm'
-        }`}>
-          {body}
-        </div>
+        {isMedia ? body : (
+          <div className={`px-4 py-2.5 rounded-2xl ${
+            isOut
+              ? 'bg-[#06C755] text-white rounded-tr-sm'
+              : 'bg-white border border-gray-100 text-gray-900 rounded-tl-sm shadow-sm'
+          }`}>
+            {body}
+          </div>
+        )}
         <div className={`flex items-center gap-1.5 mt-1 ${isOut ? 'flex-row-reverse' : ''}`}>
           <span className="text-[11px] text-gray-400">{thaiTime(msg.created_at)}</span>
           {isOut && senderName && (
@@ -91,6 +105,26 @@ function Bubble({ msg, senderName }) {
   )
 }
 
+async function captureVideoThumb(file) {
+  return new Promise((resolve) => {
+    const video  = document.createElement('video')
+    video.preload = 'metadata'
+    video.muted   = true
+    const objUrl  = URL.createObjectURL(file)
+    video.src     = objUrl
+    video.onloadeddata = () => { video.currentTime = 0.1 }
+    video.onseeked = () => {
+      const canvas = document.createElement('canvas')
+      const w = Math.min(video.videoWidth, 1280)
+      canvas.width  = w
+      canvas.height = Math.round(w * video.videoHeight / video.videoWidth)
+      canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height)
+      canvas.toBlob(blob => { URL.revokeObjectURL(objUrl); resolve(blob) }, 'image/jpeg', 0.8)
+    }
+    video.onerror = () => { URL.revokeObjectURL(objUrl); resolve(null) }
+  })
+}
+
 export default function LineChatPage() {
   const [conversations, setConversations] = useState([])
   const [selectedId,    setSelectedId]    = useState(null)
@@ -98,13 +132,20 @@ export default function LineChatPage() {
   const [senderNames,   setSenderNames]   = useState({})
   const [text,          setText]          = useState('')
   const [sending,       setSending]       = useState(false)
+  const [uploading,     setUploading]     = useState(false)
   const [loadingConvs,  setLoadingConvs]  = useState(true)
+  const [selectedFile,  setSelectedFile]  = useState(null) // { file, previewUrl, isVideo }
   const messagesEndRef = useRef(null)
   const inputRef       = useRef(null)
+  const fileRef        = useRef(null)
 
   const selected = conversations.find(c => c.id === selectedId)
 
-  // Load conversations
+  function clearFile() {
+    if (selectedFile?.previewUrl) URL.revokeObjectURL(selectedFile.previewUrl)
+    setSelectedFile(null)
+  }
+
   async function loadConversations() {
     const { data } = await supabase
       .from('line_conversations')
@@ -116,7 +157,6 @@ export default function LineChatPage() {
 
   useEffect(() => { loadConversations() }, [])
 
-  // Realtime: conversation list updates
   useEffect(() => {
     const ch = supabase
       .channel('line-conv-list')
@@ -143,14 +183,12 @@ export default function LineChatPage() {
     }
   }
 
-  // Load messages when conversation selected
   useEffect(() => {
     if (!selectedId) { setMessages([]); return }
     loadMessages(selectedId)
     markRead(selectedId)
   }, [selectedId])
 
-  // Realtime: new messages in selected conversation
   useEffect(() => {
     if (!selectedId) return
     const ch = supabase
@@ -167,7 +205,6 @@ export default function LineChatPage() {
     return () => { supabase.removeChannel(ch) }
   }, [selectedId])
 
-  // Auto-scroll
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
@@ -177,23 +214,77 @@ export default function LineChatPage() {
     setConversations(prev => prev.map(c => c.id === convId ? { ...c, unread_count: 0 } : c))
   }
 
+  function onFileChange(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (selectedFile?.previewUrl) URL.revokeObjectURL(selectedFile.previewUrl)
+    setSelectedFile({ file, previewUrl: URL.createObjectURL(file), isVideo: file.type.startsWith('video/') })
+    e.target.value = ''
+  }
+
   async function send() {
-    if (!text.trim() || !selectedId || sending) return
+    if ((!text.trim() && !selectedFile) || !selectedId || sending) return
     setSending(true)
-    const msgText = text.trim()
+    const msgText    = text.trim()
+    const fileToSend = selectedFile
     setText('')
+    setSelectedFile(null)
+
     try {
-      const { error } = await supabase.functions.invoke('line-reply', {
-        body: { conversation_id: selectedId, text: msgText },
-      })
-      if (error) throw error
+      if (fileToSend) {
+        setUploading(true)
+        const ext  = fileToSend.isVideo ? 'mp4' : (fileToSend.file.name.split('.').pop() || 'jpg')
+        const path = `${selectedId}/${Date.now()}.${ext}`
+
+        const { data: up, error: upErr } = await supabase.storage
+          .from('line-media').upload(path, fileToSend.file, { upsert: true })
+        if (upErr) throw upErr
+
+        const { data: { publicUrl } } = supabase.storage.from('line-media').getPublicUrl(up.path)
+
+        let previewUrl = publicUrl
+        if (fileToSend.isVideo) {
+          const thumbBlob = await captureVideoThumb(fileToSend.file)
+          if (thumbBlob) {
+            const thumbPath = `${selectedId}/${Date.now()}_thumb.jpg`
+            const { data: td } = await supabase.storage
+              .from('line-media').upload(thumbPath, thumbBlob, { upsert: true })
+            if (td) {
+              const { data: { publicUrl: tu } } = supabase.storage.from('line-media').getPublicUrl(td.path)
+              previewUrl = tu
+            }
+          }
+        }
+
+        setUploading(false)
+        const { error } = await supabase.functions.invoke('line-reply', {
+          body: {
+            conversation_id: selectedId,
+            media_url:       publicUrl,
+            media_type:      fileToSend.isVideo ? 'video' : 'image',
+            preview_url:     previewUrl,
+          },
+        })
+        if (error) throw error
+        if (fileToSend.previewUrl) URL.revokeObjectURL(fileToSend.previewUrl)
+      }
+
+      if (msgText) {
+        const { error } = await supabase.functions.invoke('line-reply', {
+          body: { conversation_id: selectedId, text: msgText },
+        })
+        if (error) throw error
+      }
+
       await loadMessages(selectedId)
       inputRef.current?.focus()
     } catch (err) {
       setText(msgText)
-      alert('ส่งข้อความไม่สำเร็จ: ' + (err.message ?? err))
+      setSelectedFile(fileToSend)
+      alert('ส่งไม่สำเร็จ: ' + (err.message ?? err))
     } finally {
       setSending(false)
+      setUploading(false)
     }
   }
 
@@ -201,7 +292,6 @@ export default function LineChatPage() {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
   }
 
-  // Render messages with date separators
   function renderMessages() {
     const out = []
     let lastLabel = null
@@ -225,7 +315,6 @@ export default function LineChatPage() {
 
       {/* ---- LEFT: Conversation list ---- */}
       <div className="w-72 xl:w-80 flex-shrink-0 bg-white border-r border-gray-200 flex flex-col">
-        {/* Header */}
         <div className="px-4 py-3.5 border-b border-gray-100 flex items-center gap-2.5">
           <div className="w-6 h-6 bg-[#06C755] rounded flex items-center justify-center flex-shrink-0">
             <span className="text-white text-xs font-bold leading-none">L</span>
@@ -236,7 +325,6 @@ export default function LineChatPage() {
           </div>
         </div>
 
-        {/* List */}
         <div className="flex-1 overflow-y-auto">
           {loadingConvs && (
             <p className="text-center text-gray-400 text-xs py-8">กำลังโหลด...</p>
@@ -300,7 +388,44 @@ export default function LineChatPage() {
 
           {/* Input */}
           <div className="px-5 py-3 bg-white border-t border-gray-200">
+            {/* File preview */}
+            {selectedFile && (
+              <div className="mb-2 flex items-center gap-3">
+                <div className="relative">
+                  {selectedFile.isVideo ? (
+                    <video src={selectedFile.previewUrl} className="h-20 rounded-lg object-cover" muted />
+                  ) : (
+                    <img src={selectedFile.previewUrl} className="h-20 rounded-lg object-cover" alt="" />
+                  )}
+                  <button
+                    onClick={clearFile}
+                    className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-gray-700 hover:bg-gray-900 text-white rounded-full flex items-center justify-center"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </div>
+                {uploading && (
+                  <span className="text-xs text-gray-400">กำลังอัปโหลด...</span>
+                )}
+              </div>
+            )}
+
             <div className="flex items-end gap-2">
+              <button
+                onClick={() => fileRef.current?.click()}
+                disabled={sending}
+                className="flex-shrink-0 w-10 h-10 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-full flex items-center justify-center transition-colors disabled:opacity-40"
+                title="แนบรูปภาพ / วิดีโอ"
+              >
+                <Paperclip className="w-5 h-5" />
+              </button>
+              <input
+                ref={fileRef}
+                type="file"
+                accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime"
+                className="hidden"
+                onChange={onFileChange}
+              />
               <textarea
                 ref={inputRef}
                 value={text}
@@ -312,7 +437,7 @@ export default function LineChatPage() {
               />
               <button
                 onClick={send}
-                disabled={!text.trim() || sending}
+                disabled={(!text.trim() && !selectedFile) || sending}
                 className="flex-shrink-0 w-10 h-10 bg-[#06C755] hover:bg-[#05b34c] disabled:opacity-40 text-white rounded-full flex items-center justify-center transition-colors"
               >
                 <Send className="w-4 h-4" />
