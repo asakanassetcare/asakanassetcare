@@ -138,17 +138,12 @@ Deno.serve(async (req) => {
       raw_payload:     msg,
     })
 
-    const { data: convData } = await supabase
-      .from('line_conversations')
-      .select('unread_count')
-      .eq('id', convId)
-      .single()
-
     await supabase.from('line_conversations').update({
       last_message:    preview,
       last_message_at: new Date().toISOString(),
-      unread_count:    (convData?.unread_count ?? 0) + 1,
     }).eq('id', convId)
+
+    await supabase.rpc('increment_line_unread', { p_conv_id: convId })
 
     // ---- 4. Existing tenant + slip logic ----
     const { data: tenant } = await supabase

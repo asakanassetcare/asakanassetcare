@@ -31,7 +31,7 @@ const NAV_ITEMS = [
 
   { to: '/approvals',     label: 'รออนุมัติ',          icon: CheckSquare, approvalOnly: true, noService: true },
   { to: '/payments',      label: 'บัญชี',               icon: CreditCard, accountingOnly: true, noService: true },
-  { to: '/line-chat',     label: 'LINE Chat',          icon: MessageCircle, noService: true },
+  { to: '/line-chat',     label: 'LINE Chat',          icon: MessageCircle, noService: true, lineOnly: true },
   { to: '/maintenance',   label: 'แจ้งซ่อม',          icon: Wrench },
 
   { type: 'divider', adminOnly: true },
@@ -47,7 +47,8 @@ export default function Sidebar({ collapsed, mobileOpen, onMobileClose }) {
   const canManageAppSettings = canManageSettings(role)
   const canApprove = ['super_admin', 'executive', 'head_staff'].includes(role)
   const isService = role === 'service'
-  const [pendingCount, setPendingCount] = useState(0)
+  const [pendingCount,    setPendingCount]    = useState(0)
+  const [lineUnreadCount, setLineUnreadCount] = useState(0)
 
   useEffect(() => {
     if (!canApprove) return
@@ -79,6 +80,20 @@ export default function Sidebar({ collapsed, mobileOpen, onMobileClose }) {
     }
     fetchPendingCount()
   }, [canApprove, role])
+
+  useEffect(() => {
+    if (isService) return
+    async function fetchLineUnread() {
+      const { data } = await supabase.from('line_conversations').select('unread_count')
+      setLineUnreadCount(data?.reduce((s, c) => s + (c.unread_count ?? 0), 0) ?? 0)
+    }
+    fetchLineUnread()
+    const ch = supabase
+      .channel('sidebar-line-unread')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'line_conversations' }, fetchLineUnread)
+      .subscribe()
+    return () => { supabase.removeChannel(ch) }
+  }, [isService])
 
   return (
     <aside
@@ -125,7 +140,9 @@ export default function Sidebar({ collapsed, mobileOpen, onMobileClose }) {
           if (item.noService && isService) return null
 
           const Icon = item.icon
-          const badge = item.approvalOnly && pendingCount > 0 ? pendingCount : 0
+          const badge = item.approvalOnly && pendingCount > 0 ? pendingCount
+                      : item.lineOnly && lineUnreadCount > 0 ? lineUnreadCount
+                      : 0
 
           return (
             <NavLink
