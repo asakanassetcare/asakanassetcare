@@ -1,7 +1,6 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
 const LINE_CONTENT_API = 'https://api-data.line.me/v2/bot/message'
-const LINE_REPLY_API   = 'https://api.line.me/v2/bot/message/reply'
 const LINE_PROFILE_API = 'https://api.line.me/v2/bot/profile'
 
 async function verifySignature(body: string, signature: string, secret: string): Promise<boolean> {
@@ -10,14 +9,6 @@ async function verifySignature(body: string, signature: string, secret: string):
   const mac = await crypto.subtle.sign('HMAC', key, enc.encode(body))
   const b64 = btoa(String.fromCharCode(...new Uint8Array(mac)))
   return b64 === signature
-}
-
-async function replyLine(replyToken: string, text: string, token: string) {
-  await fetch(LINE_REPLY_API, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
-    body: JSON.stringify({ replyToken, messages: [{ type: 'text', text }] }),
-  })
 }
 
 async function getLineProfile(userId: string, token: string) {
@@ -152,12 +143,7 @@ Deno.serve(async (req) => {
       .eq('line_user_id', userId)
       .maybeSingle()
 
-    if (!tenant) {
-      await replyLine(replyToken, 'ไม่พบข้อมูลผู้เช่าในระบบ กรุณาลงทะเบียน LINE ก่อนที่ลิงก์ที่แจ้งไว้', token)
-      continue
-    }
-
-    if (msg.type === 'image' && mediaUrl) {
+    if (tenant && msg.type === 'image' && mediaUrl) {
       await supabase.from('line_payment_submissions').insert({
         tenant_id:    tenant.id,
         line_user_id: userId,
@@ -172,13 +158,7 @@ Deno.serve(async (req) => {
         target_role: 'staff',
         link:        '/payments?tab=line_slips',
       })
-
-      await replyLine(replyToken,
-        `ได้รับสลิปการโอนเงินของคุณ ${tenant.full_name} แล้วครับ\nเจ้าหน้าที่จะตรวจสอบและยืนยันภายในไม่เกิน 1 ชั่วโมง`,
-        token,
-      )
     }
-    // text/sticker: no auto-reply, admin handles via chat center
   }
 
   return Response.json({ ok: true })
