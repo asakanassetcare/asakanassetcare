@@ -422,7 +422,7 @@ export default function LineChatPage() {
               <input
                 ref={fileRef}
                 type="file"
-                accept="image/jpeg,image/png,image/gif,image/webp,video/mp4,video/quicktime"
+                accept="image/*,video/mp4,video/quicktime,.mp4,.mov"
                 className="hidden"
                 onChange={onFileChange}
               />
