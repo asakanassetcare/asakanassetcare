@@ -18,6 +18,7 @@ const NAV_ITEMS = [
   { type: 'divider', noService: true },
 
   { to: '/rooms',         label: 'บริหารห้องเช่า',    icon: DoorOpen, noService: true },
+  { to: '/line-chat',     label: 'LINE Chat',          icon: MessageCircle, noService: true, lineOnly: true },
   { to: '/manage',        label: 'จัดการ & ตรวจสอบ',  icon: LayoutList, noService: true },
 
   { type: 'divider', noService: true },
@@ -31,7 +32,6 @@ const NAV_ITEMS = [
 
   { to: '/approvals',     label: 'รออนุมัติ',          icon: CheckSquare, approvalOnly: true, noService: true },
   { to: '/payments',      label: 'บัญชี',               icon: CreditCard, accountingOnly: true, noService: true },
-  { to: '/line-chat',     label: 'LINE Chat',          icon: MessageCircle, noService: true, lineOnly: true },
   { to: '/maintenance',   label: 'แจ้งซ่อม',          icon: Wrench },
 
   { type: 'divider', adminOnly: true },
