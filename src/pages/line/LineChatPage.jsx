@@ -221,7 +221,7 @@ export default function LineChatPage() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-56px)]">
+    <div className="-mx-4 sm:-mx-6 -my-4 sm:-my-6 flex h-[calc(100vh-4rem)] overflow-hidden">
 
       {/* ---- LEFT: Conversation list ---- */}
       <div className="w-72 xl:w-80 flex-shrink-0 bg-white border-r border-gray-200 flex flex-col">
