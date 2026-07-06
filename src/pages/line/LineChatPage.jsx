@@ -265,8 +265,8 @@ export default function LineChatPage() {
             preview_url:     previewUrl,
           },
         })
-        if (error) throw error
         if (fileToSend.previewUrl) URL.revokeObjectURL(fileToSend.previewUrl)
+        if (error) throw error
       }
 
       if (msgText) {
@@ -276,7 +276,6 @@ export default function LineChatPage() {
         if (error) throw error
       }
 
-      await loadMessages(selectedId)
       inputRef.current?.focus()
     } catch (err) {
       setText(msgText)

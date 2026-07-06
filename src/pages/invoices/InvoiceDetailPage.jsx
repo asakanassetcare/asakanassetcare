@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { ChevronRight, CreditCard, XCircle, Upload, Loader2, CheckCircle } from 'lucide-react'
+import { ChevronRight, CreditCard, XCircle, Upload, Loader2, CheckCircle, X } from 'lucide-react'
 import { pdf } from '@react-pdf/renderer'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
@@ -48,9 +48,11 @@ export default function InvoiceDetailPage() {
   // Payment recording modal
   const [payModal,          setPayModal]          = useState(false)
   const [payForm,           setPayForm]           = useState({ paid_date: '', bank_name: '', bank_reference: '', note: '' })
-  const [slipFile,          setSlipFile]          = useState(null)
-  const [existingSlipPath,  setExistingSlipPath]  = useState(null)
-  const [existingSlipUrl,   setExistingSlipUrl]   = useState(null)
+  const [slipFiles,              setSlipFiles]              = useState([])
+  const [existingSlipPath,       setExistingSlipPath]       = useState(null)
+  const [existingSlipUrl,        setExistingSlipUrl]        = useState(null)
+  const [existingExtraSlipPaths, setExistingExtraSlipPaths] = useState([])
+  const [existingExtraSlipUrls,  setExistingExtraSlipUrls]  = useState([])
   const [relationEnabled,   setRelationEnabled]   = useState(false)
   const [selectedRelationInvoiceIds, setSelectedRelationInvoiceIds] = useState([])
   const [paying,            setPaying]            = useState(false)
@@ -165,15 +167,25 @@ export default function InvoiceDetailPage() {
       bank_reference: normalizeSlipReference(pre?.bank_reference),
       note:           pre?.note           ?? '',
     })
-    setSlipFile(null)
+    setSlipFiles([])
     setPayError('')
     setExistingSlipPath(pre?.slip_url ?? null)
     setExistingSlipUrl(null)
+    setExistingExtraSlipPaths(pre?.extra_slips ?? [])
+    setExistingExtraSlipUrls([])
     setRelationEnabled(false)
     setSelectedRelationInvoiceIds([])
     if (pre?.slip_url) {
       const { data } = await supabase.storage.from('payment-slips').createSignedUrl(pre.slip_url, 3600)
       setExistingSlipUrl(data?.signedUrl ?? null)
+    }
+    if (pre?.extra_slips?.length) {
+      const urls = await Promise.all(
+        pre.extra_slips.map(path =>
+          supabase.storage.from('payment-slips').createSignedUrl(path, 3600).then(r => r.data?.signedUrl ?? null)
+        )
+      )
+      setExistingExtraSlipUrls(urls.filter(Boolean))
     }
     setPayModal(true)
   }
@@ -211,16 +223,24 @@ export default function InvoiceDetailPage() {
   async function handlePayment(e) {
     e.preventDefault()
     if (!payForm.paid_date) { setPayError('กรุณากรอกวันชำระ'); return }
-    if (!slipFile && !existingSlipPath) { setPayError('กรุณาแนบสลิป'); return }
+    if (!slipFiles.length && !existingSlipPath) { setPayError('กรุณาแนบสลิป'); return }
     setPaying(true)
 
-    let slipUrl = existingSlipPath
-    if (slipFile) {
-      const ext = slipFile.name.split('.').pop()
-      const path = `${invoiceId}/slip_${Date.now()}.${ext}`
-      const { data: storageData, error: storageErr } = await supabase.storage.from('payment-slips').upload(path, slipFile, { upsert: false })
+    const uploadedPaths = []
+    for (const file of slipFiles) {
+      const ext = file.name.split('.').pop()
+      const path = `${invoiceId}/slip_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.${ext}`
+      const { data: storageData, error: storageErr } = await supabase.storage.from('payment-slips').upload(path, file, { upsert: false })
       if (storageErr) { setPaying(false); setPayError('อัปโหลดสลิปไม่สำเร็จ: ' + storageErr.message); return }
-      slipUrl = storageData.path
+      uploadedPaths.push(storageData.path)
+    }
+    let slipUrl = existingSlipPath
+    let newExtraSlips = [...existingExtraSlipPaths]
+    if (!slipUrl && uploadedPaths.length > 0) {
+      slipUrl = uploadedPaths[0]
+      newExtraSlips = [...newExtraSlips, ...uploadedPaths.slice(1)]
+    } else {
+      newExtraSlips = [...newExtraSlips, ...uploadedPaths]
     }
 
     const existingReviewable = payments.find(p => p.status === 'pending_approve')
@@ -232,6 +252,7 @@ export default function InvoiceDetailPage() {
         bank_name:      payForm.bank_name || null,
         bank_reference: normalizeSlipReference(payForm.bank_reference) || null,
         slip_url:       slipUrl,
+        extra_slips:    newExtraSlips.length > 0 ? newExtraSlips : null,
         note:           payForm.note.trim() || null,
         recorded_by:    profile.id,
         amount:         grandTotal,
@@ -246,6 +267,7 @@ export default function InvoiceDetailPage() {
         bank_name:      payForm.bank_name || null,
         bank_reference: normalizeSlipReference(payForm.bank_reference) || null,
         slip_url:       slipUrl,
+        extra_slips:    newExtraSlips.length > 0 ? newExtraSlips : null,
         note:           payForm.note.trim() || null,
         status:         'pending_approve',
         recorded_by:    profile.id,
@@ -689,6 +711,12 @@ export default function InvoiceDetailPage() {
                         if (data?.signedUrl) window.open(data.signedUrl, '_blank')
                       }} className="text-xs text-blue-600 hover:underline">ดูสลิป</button>
                     )}
+                    {(pmt.extra_slips ?? []).map((path, i) => (
+                      <button key={i} onClick={async () => {
+                        const { data } = await supabase.storage.from('payment-slips').createSignedUrl(path, 3600)
+                        if (data?.signedUrl) window.open(data.signedUrl, '_blank')
+                      }} className="text-xs text-blue-600 hover:underline">สลิป {i + 2}</button>
+                    ))}
                     <Badge variant={pmt.status} />
                     {canManagerApprove && pmt.status === 'pending_approve' && !pmt.head_approved_at && !pmt.head_rejected_at && (
                       <Button size="sm" icon={<CheckCircle className="h-3.5 w-3.5" />}
@@ -750,28 +778,51 @@ export default function InvoiceDetailPage() {
               maxLength={4}
               placeholder={SLIP_REFERENCE_PLACEHOLDER} />
           </div>
-          <div className="flex flex-col gap-1">
+          <div className="flex flex-col gap-2">
             <label className="text-sm font-medium text-gray-700">
               แนบสลิป {!existingSlipPath && <span className="text-red-500">*</span>}
             </label>
-            {existingSlipUrl && !slipFile && (
-              <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 p-2">
-                <img
-                  src={existingSlipUrl}
-                  alt="slip"
-                  className="h-16 w-16 cursor-pointer rounded border object-cover hover:opacity-80"
-                  onClick={() => window.open(existingSlipUrl, '_blank')}
-                />
-                <p className="text-xs text-gray-500">สลิปที่แนบไว้แล้ว<br />เลือกไฟล์ใหม่เพื่อเปลี่ยน</p>
+            {(existingSlipUrl || existingExtraSlipUrls.length > 0) && (
+              <div className="flex flex-wrap items-center gap-2">
+                {existingSlipUrl && (
+                  <button type="button" onClick={() => window.open(existingSlipUrl, '_blank')}
+                    className="h-16 w-16 shrink-0 overflow-hidden rounded border border-gray-200 hover:opacity-80">
+                    <img src={existingSlipUrl} alt="slip" className="h-full w-full object-cover" />
+                  </button>
+                )}
+                {existingExtraSlipUrls.map((url, i) => (
+                  <button key={i} type="button" onClick={() => window.open(url, '_blank')}
+                    className="h-16 w-16 shrink-0 overflow-hidden rounded border border-gray-200 hover:opacity-80">
+                    <img src={url} alt={`slip ${i + 2}`} className="h-full w-full object-cover" />
+                  </button>
+                ))}
+                <p className="text-xs text-gray-500">สลิปที่แนบไว้แล้ว<br />คลิกเพื่อดู</p>
+              </div>
+            )}
+            {slipFiles.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {slipFiles.map((file, i) => (
+                  <div key={i} className="relative h-16 w-16 shrink-0">
+                    {file.type.startsWith('image/') ? (
+                      <img src={URL.createObjectURL(file)} alt="" className="h-full w-full rounded border border-gray-200 object-cover" />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center rounded border border-gray-200 bg-gray-50 text-[10px] text-gray-500">PDF</div>
+                    )}
+                    <button type="button" onClick={() => setSlipFiles(fs => fs.filter((_, j) => j !== i))}
+                      className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-white">
+                      <X className="h-2.5 w-2.5" />
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
             <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-gray-300 px-4 py-3 hover:border-blue-400 transition-colors">
               <Upload className="h-4 w-4 text-gray-400" />
               <span className="text-sm text-gray-500">
-                {slipFile ? slipFile.name : existingSlipPath ? 'เปลี่ยนสลิป (ไม่บังคับ)' : 'เลือกไฟล์ภาพ / PDF'}
+                {existingSlipPath ? 'เพิ่มสลิป (ไม่บังคับ)' : 'เลือกไฟล์ภาพ / PDF'}
               </span>
-              <input type="file" accept="image/*,application/pdf" className="hidden"
-                onChange={e => setSlipFile(e.target.files?.[0] ?? null)} />
+              <input type="file" accept="image/*,application/pdf" multiple className="hidden"
+                onChange={e => setSlipFiles(fs => [...fs, ...Array.from(e.target.files ?? [])])} />
             </label>
           </div>
           <div className="rounded-lg border border-gray-100 bg-gray-50 px-3 py-3">

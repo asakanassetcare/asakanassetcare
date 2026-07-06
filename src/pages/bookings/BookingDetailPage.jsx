@@ -56,8 +56,9 @@ export default function BookingDetailPage() {
   // Payment recording
   const [payModal,      setPayModal]      = useState(false)
   const [payForm,       setPayForm]       = useState({ paid_date: '', bank_name: '', bank_reference: '' })
-  const [slipFile,      setSlipFile]      = useState(null)
-  const [slipSignedUrl, setSlipSignedUrl] = useState(null)
+  const [slipFiles,           setSlipFiles]           = useState([])
+  const [slipSignedUrl,       setSlipSignedUrl]       = useState(null)
+  const [extraSlipSignedUrls, setExtraSlipSignedUrls] = useState([])
   const [paying,        setPaying]        = useState(false)
   const [payError,      setPayError]      = useState('')
   const [managerApproving, setManagerApproving] = useState(false)
@@ -86,6 +87,16 @@ export default function BookingDetailPage() {
         .from('payment-slips')
         .createSignedUrl(data.slip_url, 3600)
       setSlipSignedUrl(urlData?.signedUrl ?? null)
+    }
+    if (data.extra_slips?.length) {
+      const urls = await Promise.all(
+        data.extra_slips.map(path =>
+          supabase.storage.from('payment-slips').createSignedUrl(path, 3600).then(r => r.data?.signedUrl ?? null)
+        )
+      )
+      setExtraSlipSignedUrls(urls.filter(Boolean))
+    } else {
+      setExtraSlipSignedUrls([])
     }
 
     setLoading(false)
@@ -126,7 +137,7 @@ export default function BookingDetailPage() {
       bank_name:      booking.bank_name      ?? '',
       bank_reference: normalizeSlipReference(booking.bank_reference),
     })
-    setSlipFile(null)
+    setSlipFiles([])
     setPayError('')
     setPayModal(true)
   }
@@ -134,21 +145,30 @@ export default function BookingDetailPage() {
   async function handleSavePayment(e) {
     e.preventDefault()
     if (!payForm.paid_date)          { setPayError('กรุณากรอกวันที่ชำระ'); return }
-    if (!slipFile && !booking.slip_url) { setPayError('กรุณาแนบสลิป'); return }
+    if (!slipFiles.length && !booking.slip_url) { setPayError('กรุณาแนบสลิป'); return }
     setPaying(true)
 
-    let slipUrl = booking.slip_url ?? null
-    if (slipFile) {
-      const ext  = slipFile.name.split('.').pop()
-      const path = `bookings/${bookingId}_${Date.now()}.${ext}`
+    const uploadedPaths = []
+    for (const file of slipFiles) {
+      const ext  = file.name.split('.').pop()
+      const path = `bookings/${bookingId}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}.${ext}`
       const { data: sd, error: se } = await supabase.storage
-        .from('payment-slips').upload(path, slipFile, { upsert: false })
+        .from('payment-slips').upload(path, file, { upsert: false })
       if (se) { setPaying(false); setPayError('อัปโหลดสลิปไม่สำเร็จ'); return }
-      slipUrl = sd.path
+      uploadedPaths.push(sd.path)
+    }
+    let slipUrl = booking.slip_url ?? null
+    let newExtraSlips = [...(booking.extra_slips ?? [])]
+    if (!slipUrl && uploadedPaths.length > 0) {
+      slipUrl = uploadedPaths[0]
+      newExtraSlips = [...newExtraSlips, ...uploadedPaths.slice(1)]
+    } else {
+      newExtraSlips = [...newExtraSlips, ...uploadedPaths]
     }
 
     const { error } = await supabase.from('bookings').update({
       slip_url:             slipUrl,
+      extra_slips:          newExtraSlips.length > 0 ? newExtraSlips : null,
       paid_date:            payForm.paid_date,
       bank_name:            payForm.bank_name || null,
       bank_reference:       normalizeSlipReference(payForm.bank_reference) || null,
@@ -384,6 +404,14 @@ export default function BookingDetailPage() {
                   <img src={slipSignedUrl} alt="slip" className="h-full w-full object-cover" />
                 </button>
               )}
+              {extraSlipSignedUrls.map((url, i) => (
+                <button key={i}
+                  onClick={() => window.open(url, '_blank')}
+                  className="shrink-0 h-20 w-20 rounded-lg border border-gray-200 overflow-hidden hover:opacity-80 transition-opacity"
+                >
+                  <img src={url} alt={`slip ${i + 2}`} className="h-full w-full object-cover" />
+                </button>
+              ))}
               <div className="grid grid-cols-2 gap-3 text-sm flex-1 sm:grid-cols-3">
                 <div>
                   <p className="text-xs text-gray-400">วันที่ชำระ</p>
@@ -458,27 +486,51 @@ export default function BookingDetailPage() {
             <label className="text-sm font-medium text-gray-700">
               แนบสลิป {!booking.slip_url && <span className="text-red-500">*</span>}
             </label>
-            {slipSignedUrl && !slipFile && (
-              <div className="flex items-center gap-3 rounded-lg border border-gray-200 bg-gray-50 p-2">
-                <img
-                  src={slipSignedUrl}
-                  alt="slip"
-                  className="h-16 w-16 cursor-pointer rounded border object-cover hover:opacity-80"
-                  onClick={() => window.open(slipSignedUrl, '_blank')}
-                />
-                <p className="text-xs text-gray-500">สลิปที่แนบไว้แล้ว<br />เลือกไฟล์ใหม่เพื่อเปลี่ยน</p>
+            {(slipSignedUrl || extraSlipSignedUrls.length > 0) && (
+              <div className="flex flex-wrap items-center gap-2">
+                {slipSignedUrl && (
+                  <button type="button" onClick={() => window.open(slipSignedUrl, '_blank')}
+                    className="h-16 w-16 shrink-0 overflow-hidden rounded border border-gray-200 hover:opacity-80">
+                    <img src={slipSignedUrl} alt="slip" className="h-full w-full object-cover" />
+                  </button>
+                )}
+                {extraSlipSignedUrls.map((url, i) => (
+                  <button key={i} type="button" onClick={() => window.open(url, '_blank')}
+                    className="h-16 w-16 shrink-0 overflow-hidden rounded border border-gray-200 hover:opacity-80">
+                    <img src={url} alt={`slip ${i + 2}`} className="h-full w-full object-cover" />
+                  </button>
+                ))}
+                <p className="text-xs text-gray-500">สลิปที่แนบไว้แล้ว<br />คลิกเพื่อดู</p>
+              </div>
+            )}
+            {slipFiles.length > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {slipFiles.map((file, i) => (
+                  <div key={i} className="relative h-16 w-16 shrink-0">
+                    {file.type.startsWith('image/') ? (
+                      <img src={URL.createObjectURL(file)} alt="" className="h-full w-full rounded border border-gray-200 object-cover" />
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center rounded border border-gray-200 bg-gray-50 text-[10px] text-gray-500">PDF</div>
+                    )}
+                    <button type="button" onClick={() => setSlipFiles(fs => fs.filter((_, j) => j !== i))}
+                      className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-white">
+                      <X className="h-2.5 w-2.5" />
+                    </button>
+                  </div>
+                ))}
               </div>
             )}
             <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-gray-300 px-4 py-3 hover:border-blue-400 transition-colors">
               <Upload className="h-4 w-4 text-gray-400" />
               <span className="text-sm text-gray-500">
-                {slipFile ? slipFile.name : booking.slip_url ? 'เปลี่ยนสลิป (ไม่บังคับ)' : 'เลือกไฟล์ภาพ / PDF'}
+                {booking.slip_url ? 'เพิ่มสลิป (ไม่บังคับ)' : 'เลือกไฟล์ภาพ / PDF'}
               </span>
               <input
                 type="file"
                 accept="image/*,application/pdf"
+                multiple
                 className="hidden"
-                onChange={e => setSlipFile(e.target.files?.[0] ?? null)}
+                onChange={e => setSlipFiles(fs => [...fs, ...Array.from(e.target.files ?? [])])}
               />
             </label>
           </div>
