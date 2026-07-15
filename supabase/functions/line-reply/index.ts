@@ -61,7 +61,7 @@ Deno.serve(async (req) => {
       }
     }
   } else {
-    lineMessage = { type: 'text', text: text.trim() }
+    lineMessage = { type: 'text', text: text?.trim() ?? '' }
   }
 
   const pushRes = await fetch(LINE_PUSH_API, {

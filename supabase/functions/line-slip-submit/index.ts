@@ -52,6 +52,14 @@ Deno.serve(async (req) => {
   }
 
   // ถ้าเลือก invoice มา ใช้ tenant_id จาก invoice นั้น
+  // Bug #7 fix: ถ้ามี tenant หลายคนแต่ไม่ระบุ invoice → ไม่สามารถระบุห้องได้
+  if (!invoiceId && tenantRows.length > 1) {
+    return Response.json(
+      { error: 'ambiguous_tenant', message: 'กรุณาเลือกใบแจ้งหนี้ก่อนส่งสลิป เนื่องจากพบข้อมูลผู้เช่าหลายรายการ' },
+      { status: 400 }
+    )
+  }
+
   let tenant = tenantRows[0]
   if (invoiceId) {
     const { data: inv } = await supabase
@@ -91,14 +99,25 @@ Deno.serve(async (req) => {
     status:      'pending',
   })
 
-  // แจ้ง staff
-  await supabase.from('notifications').insert({
-    type:        'line_slip_received',
-    title:       `ได้รับสลิปจาก ${tenant.full_name}`,
-    body:        'กรุณาตรวจสอบและยืนยันการชำระเงิน',
-    target_role: 'staff',
-    link:        '/payments',
-  })
+  // แจ้ง staff — query all active staff/head_staff/super_admin profiles
+  const { data: staffProfiles } = await supabase
+    .from('profiles')
+    .select('id')
+    .in('role', ['staff', 'head_staff', 'super_admin'])
+    .eq('is_active', true)
+
+  if (staffProfiles?.length) {
+    await supabase.from('notifications').insert(
+      staffProfiles.map(p => ({
+        recipient_id: p.id,
+        type:         'payment_slip_uploaded',
+        title:        `ได้รับสลิปจาก ${tenant.full_name}`,
+        body:         'กรุณาตรวจสอบและยืนยันการชำระเงิน',
+        ref_table:    'line_payment_submissions',
+        link_url:     '/payments',
+      }))
+    )
+  }
 
   return Response.json({ ok: true })
 })

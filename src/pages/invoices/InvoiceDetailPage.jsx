@@ -299,11 +299,21 @@ export default function InvoiceDetailPage() {
       return
     }
     setApprovingId(pmt.id)
-    const { error } = await supabase.from('payments').update({
+    const { data: updated, error } = await supabase.from('payments').update({
       status:      'approved',
       approved_by: profile.id,
       approved_at: new Date().toISOString(),
-    }).eq('id', pmt.id)
+    })
+      .eq('id', pmt.id)
+      .eq('status', 'pending_approve')
+      .not('head_approved_at', 'is', null)
+      .select('id')
+    if (!error && (!updated || updated.length === 0)) {
+      setApprovingId(null)
+      alert('รายการนี้ถูกอนุมัติหรือปฏิเสธไปแล้ว กรุณารีเฟรช')
+      fetchAll()
+      return
+    }
     if (!error) {
       try {
         const blob = await pdf(
@@ -327,16 +337,26 @@ export default function InvoiceDetailPage() {
 
   async function handleManagerApprovePayment(pmt) {
     setManagerApprovingId(pmt.id)
-    const { error } = await supabase.from('payments').update({
+    const { data: updated, error } = await supabase.from('payments').update({
       head_approved_by:       profile.id,
       head_approved_at:       new Date().toISOString(),
       head_rejected_by:       null,
       head_rejected_at:       null,
       head_rejection_reason:  null,
-    }).eq('id', pmt.id)
+    })
+      .eq('id', pmt.id)
+      .eq('status', 'pending_approve')
+      .is('head_approved_at', null)
+      .is('head_rejected_at', null)
+      .select('id')
     setManagerApprovingId(null)
     if (error) {
       alert(error.message)
+      return
+    }
+    if (!updated || updated.length === 0) {
+      alert('รายการนี้ถูกอนุมัติหรือปฏิเสธไปแล้ว กรุณารีเฟรช')
+      fetchAll()
       return
     }
     fetchAll()
@@ -345,11 +365,20 @@ export default function InvoiceDetailPage() {
   async function handleRejectPayment() {
     if (!rejectReason.trim()) { setRejectErr('กรุณากรอกเหตุผล'); return }
     setRejecting(true)
-    const { error } = await supabase.from('payments').update({
+    const { data: updated, error } = await supabase.from('payments').update({
       status:           'rejected',
       rejected_at:      new Date().toISOString(),
       rejection_reason: rejectReason.trim(),
-    }).eq('id', rejectTarget.id)
+    })
+      .eq('id', rejectTarget.id)
+      .eq('status', 'pending_approve')
+      .select('id')
+    if (!error && (!updated || updated.length === 0)) {
+      setRejecting(false)
+      setRejectErr('รายการนี้ถูกอนุมัติหรือปฏิเสธไปแล้ว กรุณารีเฟรช')
+      fetchAll()
+      return
+    }
     if (!error) {
       const today = new Date().toISOString().slice(0, 10)
       const restoredStatus = invoice.due_date && addDays(invoice.due_date, 4) < today ? 'overdue' : 'pending'

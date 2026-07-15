@@ -63,6 +63,45 @@ async function pushLine(userId: string, messages: unknown[], token: string): Pro
   }
 }
 
+// Try to claim a dedupe key. Returns true if this run should proceed with the
+// LINE push, false if another run already handled it (or is handling it).
+async function claimDedupe(
+  supabase: any,
+  key: string,
+  type: string,
+  refTable: string | null,
+  refId: string | null,
+): Promise<boolean> {
+  const { error } = await supabase.from('line_notification_logs').insert({
+    dedupe_key: key,
+    type,
+    ref_table: refTable,
+    ref_id:    refId,
+    status:    'pending',
+  })
+  if (error) {
+    // 23505 = unique_violation → another invocation already claimed
+    if (error.code === '23505') return false
+    console.error(`claimDedupe insert error [${key}]`, error)
+    return false
+  }
+  return true
+}
+
+async function markDedupeSent(supabase: any, key: string) {
+  await supabase.from('line_notification_logs').update({
+    status:  'sent',
+    sent_at: new Date().toISOString(),
+  }).eq('dedupe_key', key)
+}
+
+async function markDedupeFailed(supabase: any, key: string, err: unknown) {
+  await supabase.from('line_notification_logs').update({
+    status:        'failed',
+    error_message: err instanceof Error ? err.message : JSON.stringify(err),
+  }).eq('dedupe_key', key)
+}
+
 function notifyResponse(result: { sent: number; failed: PushResult[]; skipped?: number; found?: number }) {
   return Response.json({
     ok: result.failed.length === 0,
@@ -277,6 +316,12 @@ Deno.serve(async (req) => {
   if (type === 'receipt') {
     const pid = body.payment_id
     if (pid) {
+      const dedupeKey = `receipt-${pid}`
+      const claimed = await claimDedupe(supabase, dedupeKey, 'receipt', 'payments', pid)
+      if (!claimed) {
+        return notifyResponse({ sent: 0, failed: [], skipped: 1, found: 0 })
+      }
+
       const { data: pmt } = await supabase
         .from('payments')
         .select(`
@@ -357,8 +402,12 @@ Deno.serve(async (req) => {
           },
         }
         const result = await pushLine(userId, [flex], token)
+        if (result.ok) await markDedupeSent(supabase, dedupeKey)
+        else           await markDedupeFailed(supabase, dedupeKey, result.error)
         return notifyResponse({ sent: result.ok ? 1 : 0, failed: result.ok ? [] : [result], found: 1 })
       }
+      // No LINE user found → release the claim so admin can retry after linking
+      await supabase.from('line_notification_logs').delete().eq('dedupe_key', dedupeKey)
     }
     return notifyResponse({ sent: 0, failed: [], skipped: 1, found: 0 })
   }
@@ -383,6 +432,13 @@ Deno.serve(async (req) => {
     for (const c of contracts ?? []) {
       const userId = c.tenants?.line_user_id
       if (!userId) {
+        skipped++
+        continue
+      }
+
+      const dedupeKey = `contract_expiry-${c.id}-${daysBefore}d`
+      const claimed = await claimDedupe(supabase, dedupeKey, 'contract_expiry', 'contracts', c.id)
+      if (!claimed) {
         skipped++
         continue
       }
@@ -436,25 +492,35 @@ Deno.serve(async (req) => {
         },
       }
       const result = await pushLine(userId, [flex], token)
-      if (result.ok) sent++
-      else failed.push(result)
+      if (result.ok) { sent++; await markDedupeSent(supabase, dedupeKey) }
+      else            { failed.push(result); await markDedupeFailed(supabase, dedupeKey, result.error) }
     }
     return notifyResponse({ sent, failed, skipped, found: contracts?.length ?? 0 })
   }
 
   if (type === 'invoice') {
     const failed: PushResult[] = []
-    for (const { userId, name, roomName, invoices: roomInvoices } of byRoom.values()) {
+    const monthKey = today.slice(0, 7) // YYYY-MM
+    for (const [key, { userId, name, roomName, invoices: roomInvoices }] of byRoom.entries()) {
+      const dedupeKey = `invoice-${key}-${monthKey}`
+      const claimed = await claimDedupe(supabase, dedupeKey, 'invoice', 'tenants', roomInvoices[0]?.tenants?.id ?? null)
+      if (!claimed) { skipped++; continue }
+
       const result = await pushLine(userId, [buildSummaryFlex(`${name} · ${roomName}`, roomInvoices, bank, ratePerDay, today)], token)
-      if (result.ok) sent++
-      else failed.push(result)
+      if (result.ok) { sent++; await markDedupeSent(supabase, dedupeKey) }
+      else            { failed.push(result); await markDedupeFailed(supabase, dedupeKey, result.error) }
     }
     return notifyResponse({ sent, failed, skipped, found: invoices?.length ?? 0 })
   }
 
   if (type === 'reminder') {
     const failed: PushResult[] = []
-    for (const { userId, roomName, invoices: roomInvoices } of byRoom.values()) {
+    const monthKey = today.slice(0, 7)
+    for (const [key, { userId, roomName, invoices: roomInvoices }] of byRoom.entries()) {
+      const dedupeKey = `reminder-${key}-${monthKey}`
+      const claimed = await claimDedupe(supabase, dedupeKey, 'reminder', 'tenants', roomInvoices[0]?.tenants?.id ?? null)
+      if (!claimed) { skipped++; continue }
+
       const subtotal     = roomInvoices.reduce((s, i) => s + Number(i.total_amount), 0)
       const totalPenalty = roomInvoices.reduce((s, i) => s + (
         i.invoice_type === 'monthly_rent'
@@ -471,8 +537,8 @@ Deno.serve(async (req) => {
       const title = today <= earliestDue ? '⏰ แจ้งเตือนค่าเช่า' : '⚠️ แจ้งเตือนค้างชำระ'
       const text = `${title}\n${roomName}\n${dueLine}\nยอดค้างรวม ฿${grandFmt}${penaltyLine}\nหากชำระแล้วกรุณาแจ้งเจ้าหน้าที่\n📞 080-000-0000`
       const result = await pushLine(userId, [{ type: 'text', text }], token)
-      if (result.ok) sent++
-      else failed.push(result)
+      if (result.ok) { sent++; await markDedupeSent(supabase, dedupeKey) }
+      else            { failed.push(result); await markDedupeFailed(supabase, dedupeKey, result.error) }
     }
     return notifyResponse({ sent, failed, skipped, found: invoices?.length ?? 0 })
   }

@@ -208,12 +208,22 @@ export default function PaymentsPage() {
       return
     }
     setActionLoading(pmt.id)
-    const { error } = await supabase.from('payments').update({
+    const { data: updated, error } = await supabase.from('payments').update({
       status: 'approved',
       approved_by: profile.id,
       approved_at: new Date().toISOString(),
-    }).eq('id', pmt.id)
+    })
+      .eq('id', pmt.id)
+      .eq('status', 'pending_approve')
+      .not('head_approved_at', 'is', null)
+      .select('id')
     if (error) { setActionLoading(null); alert(error.message); return }
+    if (!updated || updated.length === 0) {
+      setActionLoading(null)
+      alert('รายการนี้ถูกอนุมัติหรือปฏิเสธไปแล้ว กรุณารีเฟรช')
+      fetchAll()
+      return
+    }
 
     // Generate PDF ใบเสร็จ → upload → ส่ง LINE
     let receiptUrl = null
@@ -251,11 +261,20 @@ export default function PaymentsPage() {
   async function handleReject() {
     if (!rejectReason.trim()) { setRejectErr('กรุณากรอกเหตุผล'); return }
     setRejecting(true)
-    const { error } = await supabase.from('payments').update({
+    const { data: updated, error } = await supabase.from('payments').update({
       status: 'rejected',
       rejected_at: new Date().toISOString(),
       rejection_reason: rejectReason.trim(),
-    }).eq('id', rejectTarget.id)
+    })
+      .eq('id', rejectTarget.id)
+      .eq('status', 'pending_approve')
+      .select('id')
+    if (!error && (!updated || updated.length === 0)) {
+      setRejecting(false)
+      setRejectErr('รายการนี้ถูกอนุมัติหรือปฏิเสธไปแล้ว กรุณารีเฟรช')
+      fetchAll()
+      return
+    }
     if (!error && rejectTarget.invoices?.id) {
       const today = new Date().toISOString().slice(0, 10)
       const restoredStatus = rejectTarget.invoices.due_date && addDays(rejectTarget.invoices.due_date, 4) < today ? 'overdue' : 'pending'

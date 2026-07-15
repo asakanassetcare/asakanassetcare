@@ -184,17 +184,25 @@ export default function BookingDetailPage() {
 
   async function handleManagerApprovePayment() {
     setManagerApproving(true)
-    const { error } = await supabase.from('bookings').update({
+    const { data: updated, error } = await supabase.from('bookings').update({
       head_approved_by:       profile.id,
       head_approved_at:       new Date().toISOString(),
       head_rejected_by:       null,
       head_rejected_at:       null,
       head_rejection_reason:  null,
-    }).eq('id', bookingId).eq('status', 'waiting')
+    })
+      .eq('id', bookingId)
+      .eq('status', 'waiting')
+      .is('head_approved_at', null)
+      .is('head_rejected_at', null)
+      .select('id')
     setManagerApproving(false)
     if (error) {
       alert(error.message)
       return
+    }
+    if (!updated || updated.length === 0) {
+      alert('รายการนี้ถูกอนุมัติหรือปฏิเสธไปแล้ว กรุณารีเฟรช')
     }
     fetchBooking()
   }
