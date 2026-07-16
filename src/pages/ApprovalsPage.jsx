@@ -178,6 +178,7 @@ export default function ApprovalsPage() {
 
   async function approvePaymentItem(item) {
     setActionId(`${item._kind}-${item.id}`)
+
     const patch = {
       head_approved_by: profile.id,
       head_approved_at: new Date().toISOString(),

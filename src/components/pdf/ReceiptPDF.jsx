@@ -17,6 +17,18 @@ const S = StyleSheet.create({
     opacity: 0.055,
     transform: 'rotate(-30deg)',
   },
+  watermarkVoid: {
+    position: 'absolute',
+    top: 290,
+    left: 30,
+    width: 540,
+    textAlign: 'center',
+    fontSize: 68,
+    fontWeight: 700,
+    color: '#ef4444',
+    opacity: 0.12,
+    transform: 'rotate(-30deg)',
+  },
   watermarkMicro: {
     position: 'absolute',
     left: -22,
@@ -105,7 +117,7 @@ const TYPE_LABEL = {
 
 const k = (t) => `${t}  `
 
-export default function ReceiptPDF({ payment, invoice: inv, company = {} }) {
+export default function ReceiptPDF({ payment, invoice: inv, company = {}, isVoided = false, originalReceiptNumber = null }) {
   if (!payment || !inv) return null
 
   const penaltyAmt = Number(payment.penalty_amount ?? 0)
@@ -135,7 +147,7 @@ export default function ReceiptPDF({ payment, invoice: inv, company = {} }) {
           <View style={S.titleCol}>
             <Text style={S.titleMain}>{k('ใบเสร็จรับเงิน')}</Text>
             <Text style={S.titleEn}>Official Receipt</Text>
-            <Text style={S.titleOrig}>{k('ต้นฉบับ / Original')}</Text>
+            <Text style={S.titleOrig}>{k(isVoided ? 'ยกเลิกแล้ว / VOID' : originalReceiptNumber ? 'ใบแทน / Replacement' : 'ต้นฉบับ / Original')}</Text>
           </View>
         </View>
 
@@ -162,10 +174,16 @@ export default function ReceiptPDF({ payment, invoice: inv, company = {} }) {
               <Text style={S.metaLbl}>{k('วันออกเอกสาร')}</Text>
               <Text style={S.metaVal}>{k(thaiDate(payment.approved_at))}</Text>
             </View>
-            <View style={S.metaRowLast}>
+            <View style={originalReceiptNumber ? S.metaRow : S.metaRowLast}>
               <Text style={S.metaLbl}>{k('อ้างอิงธนาคาร')}</Text>
               <Text style={S.metaVal}>{payment.bank_reference || '—'}</Text>
             </View>
+            {originalReceiptNumber && (
+              <View style={S.metaRowLast}>
+                <Text style={S.metaLbl}>{k('แทนใบเสร็จ')}</Text>
+                <Text style={[S.metaVal, { fontSize: 8.4 }]}>{originalReceiptNumber}</Text>
+              </View>
+            )}
           </View>
         </View>
 
@@ -278,6 +296,9 @@ export default function ReceiptPDF({ payment, invoice: inv, company = {} }) {
             {`Asakan AssetCare · ${docRef} · Asakan AssetCare · ${docRef} · Asakan AssetCare`}
           </Text>
         ))}
+        {isVoided && (
+          <Text fixed style={S.watermarkVoid}>VOID / ยกเลิก</Text>
+        )}
 
       </Page>
     </Document>
