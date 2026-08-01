@@ -18,7 +18,7 @@ const TABS = [
   { id: 'docs',  label: 'เอกสาร' },
 ]
 
-const EMPTY_FORM = { full_name: '', id_card_number: '', address: '', phone: '', line_id: '', email: '', bank_name: '', bank_account_number: '', bank_account_name: '', note: '' }
+const EMPTY_FORM = { full_name: '', id_card_number: '', address: '', phone: '', line_id: '', email: '', bank_name: '', bank_branch: '', bank_account_number: '', bank_account_name: '', note: '' }
 
 export default function OwnerDetailPage() {
   const { ownerId } = useParams()
@@ -50,7 +50,7 @@ export default function OwnerDetailPage() {
     setForm({
       full_name: o.full_name, id_card_number: o.id_card_number ?? '',
       address: o.address ?? '', phone: o.phone ?? '', line_id: o.line_id ?? '',
-      email: o.email ?? '', bank_name: o.bank_name ?? '',
+      email: o.email ?? '', bank_name: o.bank_name ?? '', bank_branch: o.bank_branch ?? '',
       bank_account_number: o.bank_account_number ?? '',
       bank_account_name: o.bank_account_name ?? '', note: o.note ?? '',
     })
@@ -71,6 +71,7 @@ export default function OwnerDetailPage() {
       line_id: form.line_id.trim() || null,
       email: form.email.trim() || null,
       bank_name: form.bank_name.trim() || null,
+      bank_branch: form.bank_branch.trim() || null,
       bank_account_number: form.bank_account_number.trim() || null,
       bank_account_name: form.bank_account_name.trim() || null,
       note: form.note.trim() || null,
@@ -133,8 +134,9 @@ export default function OwnerDetailPage() {
 
             <div className="col-span-2">
               <p className="mb-3 text-sm font-medium text-gray-700">ข้อมูลธนาคาร</p>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-4 gap-3">
                 <Input label="ธนาคาร" value={form.bank_name} onChange={e => set('bank_name', e.target.value)} placeholder="กสิกรไทย" />
+                <Input label="สาขา" value={form.bank_branch} onChange={e => set('bank_branch', e.target.value)} placeholder="สาขา" />
                 <Input label="เลขบัญชี" value={form.bank_account_number} onChange={e => set('bank_account_number', e.target.value)} placeholder="000-0-00000-0" />
                 <Input label="ชื่อบัญชี" value={form.bank_account_name} onChange={e => set('bank_account_name', e.target.value)} />
               </div>

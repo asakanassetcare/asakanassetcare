@@ -165,7 +165,7 @@ export default function ContractPrintPage() {
   // ธนาคาร: managed → เจ้าของห้อง / owned → บัญชีบริษัทจาก settings (ไม่แตะ logic เดิม)
   const companyBank = settings?.invoice?.bank_account ?? settings?.bank_account ?? {}
   const bankName    = isManaged ? (owner.bank_name || null)           : (companyBank.bank_name      || null)
-  const bankBranch  = isManaged ? null                                 : (companyBank.branch || companyBank.branch_name || null)
+  const bankBranch  = isManaged ? (owner.bank_branch || null)          : (companyBank.branch || companyBank.branch_name || null)
   const bankNumber  = isManaged ? (owner.bank_account_number || null) : (companyBank.account_number || null)
   const bankOwner   = isManaged ? (owner.bank_account_name || null)   : (companyBank.account_name   || null)
 
