@@ -102,6 +102,38 @@ async function markDedupeFailed(supabase: any, key: string, err: unknown) {
   }).eq('dedupe_key', key)
 }
 
+async function saveOutboundChat(supabase: any, lineUserId: string, content: string, displayName: string) {
+  let { data: conv } = await supabase
+    .from('line_conversations')
+    .select('id')
+    .eq('line_user_id', lineUserId)
+    .maybeSingle()
+
+  if (!conv) {
+    const { data: newConv } = await supabase
+      .from('line_conversations')
+      .insert({ line_user_id: lineUserId, display_name: displayName })
+      .select('id')
+      .single()
+    conv = newConv
+  }
+
+  if (!conv?.id) return
+
+  await supabase.from('line_messages').insert({
+    conversation_id: conv.id,
+    direction:       'outbound',
+    message_type:    'text',
+    content,
+    sent_by:         null,
+  })
+
+  await supabase.from('line_conversations').update({
+    last_message:    content,
+    last_message_at: new Date().toISOString(),
+  }).eq('id', conv.id)
+}
+
 function notifyResponse(result: { sent: number; failed: PushResult[]; skipped?: number; found?: number }) {
   return Response.json({
     ok: result.failed.length === 0,
@@ -402,8 +434,12 @@ Deno.serve(async (req) => {
           },
         }
         const result = await pushLine(userId, [flex], token)
-        if (result.ok) await markDedupeSent(supabase, dedupeKey)
-        else           await markDedupeFailed(supabase, dedupeKey, result.error)
+        if (result.ok) {
+          await markDedupeSent(supabase, dedupeKey)
+          await saveOutboundChat(supabase, userId, flex.altText, tenantName)
+        } else {
+          await markDedupeFailed(supabase, dedupeKey, result.error)
+        }
         return notifyResponse({ sent: result.ok ? 1 : 0, failed: result.ok ? [] : [result], found: 1 })
       }
       // No LINE user found → release the claim so admin can retry after linking
@@ -492,8 +528,14 @@ Deno.serve(async (req) => {
         },
       }
       const result = await pushLine(userId, [flex], token)
-      if (result.ok) { sent++; await markDedupeSent(supabase, dedupeKey) }
-      else            { failed.push(result); await markDedupeFailed(supabase, dedupeKey, result.error) }
+      if (result.ok) {
+        sent++
+        await markDedupeSent(supabase, dedupeKey)
+        await saveOutboundChat(supabase, userId, flex.altText, tenantName)
+      } else {
+        failed.push(result)
+        await markDedupeFailed(supabase, dedupeKey, result.error)
+      }
     }
     return notifyResponse({ sent, failed, skipped, found: contracts?.length ?? 0 })
   }
@@ -506,9 +548,16 @@ Deno.serve(async (req) => {
       const claimed = await claimDedupe(supabase, dedupeKey, 'invoice', 'tenants', roomInvoices[0]?.tenants?.id ?? null)
       if (!claimed) { skipped++; continue }
 
-      const result = await pushLine(userId, [buildSummaryFlex(`${name} · ${roomName}`, roomInvoices, bank, ratePerDay, today)], token)
-      if (result.ok) { sent++; await markDedupeSent(supabase, dedupeKey) }
-      else            { failed.push(result); await markDedupeFailed(supabase, dedupeKey, result.error) }
+      const summaryFlex = buildSummaryFlex(`${name} · ${roomName}`, roomInvoices, bank, ratePerDay, today)
+      const result = await pushLine(userId, [summaryFlex], token)
+      if (result.ok) {
+        sent++
+        await markDedupeSent(supabase, dedupeKey)
+        await saveOutboundChat(supabase, userId, summaryFlex.altText, name)
+      } else {
+        failed.push(result)
+        await markDedupeFailed(supabase, dedupeKey, result.error)
+      }
     }
     return notifyResponse({ sent, failed, skipped, found: invoices?.length ?? 0 })
   }
@@ -516,7 +565,7 @@ Deno.serve(async (req) => {
   if (type === 'reminder') {
     const failed: PushResult[] = []
     const monthKey = today.slice(0, 7)
-    for (const [key, { userId, roomName, invoices: roomInvoices }] of byRoom.entries()) {
+    for (const [key, { userId, name, roomName, invoices: roomInvoices }] of byRoom.entries()) {
       const dedupeKey = `reminder-${key}-${monthKey}`
       const claimed = await claimDedupe(supabase, dedupeKey, 'reminder', 'tenants', roomInvoices[0]?.tenants?.id ?? null)
       if (!claimed) { skipped++; continue }
@@ -537,8 +586,14 @@ Deno.serve(async (req) => {
       const title = today <= earliestDue ? '⏰ แจ้งเตือนค่าเช่า' : '⚠️ แจ้งเตือนค้างชำระ'
       const text = `${title}\n${roomName}\n${dueLine}\nยอดค้างรวม ฿${grandFmt}${penaltyLine}\nหากชำระแล้วกรุณาแจ้งเจ้าหน้าที่\n📞 080-000-0000`
       const result = await pushLine(userId, [{ type: 'text', text }], token)
-      if (result.ok) { sent++; await markDedupeSent(supabase, dedupeKey) }
-      else            { failed.push(result); await markDedupeFailed(supabase, dedupeKey, result.error) }
+      if (result.ok) {
+        sent++
+        await markDedupeSent(supabase, dedupeKey)
+        await saveOutboundChat(supabase, userId, text, name)
+      } else {
+        failed.push(result)
+        await markDedupeFailed(supabase, dedupeKey, result.error)
+      }
     }
     return notifyResponse({ sent, failed, skipped, found: invoices?.length ?? 0 })
   }

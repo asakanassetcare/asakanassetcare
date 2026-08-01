@@ -72,7 +72,7 @@ function Sec({ title, children }) {
   )
 }
 
-function Sig({ role, name, wideName = false, smallName = false }) {
+function Sig({ role, name, wideName = false, smallName = false, suffix = '' }) {
   const nameInner = name || (wideName
     ? <span className="inline-block w-[150px] border-b border-dotted border-slate-600">&#8203;</span>
     : DS)
@@ -87,7 +87,9 @@ function Sig({ role, name, wideName = false, smallName = false }) {
           </tr>
           <tr>
             <td />
-            <td className={`text-center align-top${smallName ? ' whitespace-nowrap' : ''}`}>({nameInner})</td>
+            <td className={`text-center align-top${smallName ? ' whitespace-nowrap' : ''}`}>
+              ({nameInner}){suffix ? <span className="ml-0.5">{suffix}</span> : null}
+            </td>
             <td />
           </tr>
         </tbody>
@@ -109,8 +111,10 @@ export default function ContractPrintPage() {
     async function load() {
       const { data, error } = await supabase.from('contracts').select(`
         *,
-        rooms(id, room_number, floor, size_sqm, ownership, title_deed_number, buildings(id, name, projects(name))),
-        tenants(id, full_name, phone, email, id_card_last4, birth_date, address_house_no, address_road, address_subdistrict, address_district, address_province)
+        rooms(id, room_number, floor, size_sqm, ownership, title_deed_number, buildings(id, name, projects(name)),
+          owners(full_name, id_card_number, address, phone, bank_name, bank_account_number, bank_account_name)),
+        tenants(id, full_name, phone, email, id_card_last4, birth_date, address_house_no, address_road, address_subdistrict, address_district, address_province),
+        profiles!assigned_staff_id(id, full_name)
       `).eq('id', contractId).single()
 
       if (error) {
@@ -145,16 +149,25 @@ export default function ContractPrintPage() {
     )
   }
 
-  const co      = settings?.company?.name    || DS
-  const coTax   = settings?.company?.tax_id  || DS
-  const coAddr  = settings?.company?.address || DS
-  const coPhone = settings?.company?.phone   || ''
-  const coAddrFull = coAddr + (coPhone ? `  โทร. ${coPhone}` : '')
-  const bankAccount = settings?.invoice?.bank_account ?? settings?.bank_account ?? {}
-  const bankName    = bankAccount.bank_name      || null
-  const bankBranch  = bankAccount.branch         || bankAccount.branch_name || null
-  const bankNumber  = bankAccount.account_number || null
-  const bankOwner   = bankAccount.account_name   || null
+  const isManaged = c.rooms?.ownership === 'managed'
+  const owner     = c.rooms?.owners ?? {}
+  const staffName = c.profiles?.full_name ?? null
+
+  // ผู้ให้เช่า: managed → เจ้าของห้อง / owned → บริษัท (ไม่แตะ logic เดิมของบริษัท)
+  const lessorName    = isManaged ? (owner.full_name || DS)       : (settings?.company?.name    || DS)
+  const lessorId      = isManaged ? (owner.id_card_number || DS)  : (settings?.company?.tax_id  || DS)
+  const lessorIdLabel = isManaged ? 'เลขประจำตัวประชาชน'          : 'เลขประจำตัวผู้เสียภาษีอากร'
+  const lessorAddrPrefix = isManaged ? 'ที่อยู่' : 'สำนักงานตั้งอยู่'
+  const lessorAddr    = isManaged ? (owner.address || DS)         : (settings?.company?.address || DS)
+  const lessorPhone   = isManaged ? (owner.phone || '')           : (settings?.company?.phone   || '')
+  const lessorAddrFull = lessorAddr + (lessorPhone ? `  โทร. ${lessorPhone}` : '')
+
+  // ธนาคาร: managed → เจ้าของห้อง / owned → บัญชีบริษัทจาก settings (ไม่แตะ logic เดิม)
+  const companyBank = settings?.invoice?.bank_account ?? settings?.bank_account ?? {}
+  const bankName    = isManaged ? (owner.bank_name || null)           : (companyBank.bank_name      || null)
+  const bankBranch  = isManaged ? null                                 : (companyBank.branch || companyBank.branch_name || null)
+  const bankNumber  = isManaged ? (owner.bank_account_number || null) : (companyBank.account_number || null)
+  const bankOwner   = isManaged ? (owner.bank_account_name || null)   : (companyBank.account_name   || null)
 
   const tName   = c.tenants?.full_name      || null
   const tPhone  = fmtPhone(c.tenants?.phone)
@@ -277,8 +290,8 @@ export default function ContractPrintPage() {
         {/* Intro */}
         <div className="mt-4 space-y-2.5 text-justify text-[13.5px] leading-[2.05]">
           <p className="indent-[4em]">
-            สัญญาฉบับนี้ทำขึ้นระหว่าง <TL v={co} /> เลขประจำตัวผู้เสียภาษีอากร <TL v={coTax} />
-            {' '}สำนักงานตั้งอยู่ <TL v={coAddrFull} min="min-w-[160px]" /> โดย <TL v="นางสาว ภัสสรมณฑ์ สิริณลญากรณ์" /> ผู้มีอำนาจกระทำการแทน
+            สัญญาฉบับนี้ทำขึ้นระหว่าง <TL v={lessorName} /> {lessorIdLabel} <TL v={lessorId} />
+            {' '}{lessorAddrPrefix} <TL v={lessorAddrFull} min="min-w-[160px]" /> โดย <TL v={staffName} /> ผู้มีอำนาจกระทำการแทน
             {' '}ซึ่งต่อไปในสัญญานี้เรียกว่า "ผู้ให้เช่า" ฝ่ายหนึ่ง
           </p>
           <p>
@@ -416,7 +429,7 @@ export default function ContractPrintPage() {
             <li>เอกสารแนบท้ายหมายเลข 1 บัญชีทรัพย์สิน เฟอร์นิเจอร์ และเครื่องใช้ไฟฟ้า</li>
             <li>เอกสารแนบท้ายหมายเลข 2 สำเนาบัตรประจำตัวประชาชนของผู้เช่า</li>
             <li>เอกสารแนบท้ายหมายเลข 3 สำเนาทะเบียนบ้านของผู้เช่า</li>
-            <li>เอกสารแนบท้ายหมายเลข 4 สำเนาหนังสือรับรองบริษัทของผู้ให้เช่า</li>
+            <li>เอกสารแนบท้ายหมายเลข 4 {isManaged ? 'สำเนาบัตรประจำตัวประชาชนของผู้ให้เช่า' : 'สำเนาหนังสือรับรองบริษัทของผู้ให้เช่า'}</li>
             <li>เอกสารแนบท้ายหมายเลข 5 สำเนาหนังสือกรรมสิทธิ์ห้องชุด</li>
           </ol>
         </Sec>
@@ -426,7 +439,7 @@ export default function ContractPrintPage() {
           สัญญานี้ทำขึ้นเป็นสองฉบับ มีข้อความถูกต้องตรงกัน คู่สัญญาทั้งสองฝ่ายได้อ่านและเข้าใจข้อความในสัญญานี้โดยตลอดแล้ว เห็นว่าถูกต้องตรงตามเจตนา จึงได้ลงลายมือชื่อไว้เป็นสำคัญต่อหน้าพยาน และคู่สัญญาต่างยึดถือไว้ฝ่ายละหนึ่งฉบับ
         </p>
         <div className="grid grid-cols-2 gap-x-8">
-          <Sig role="ผู้ให้เช่า" name="นางสาว ภัสสรมณฑ์ สิริณลญากรณ์" smallName />
+          <Sig role="ผู้ให้เช่า" name={staffName} suffix={isManaged ? '(แทน)' : ''} smallName />
           <Sig role="ผู้เช่า" name={tName} />
           <Sig role="พยาน" wideName />
           <Sig role="พยาน" wideName />

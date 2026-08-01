@@ -18,7 +18,7 @@ const TABS = [
   { id: 'docs',  label: 'เอกสาร' },
 ]
 
-const EMPTY_FORM = { full_name: '', phone: '', line_id: '', email: '', bank_name: '', bank_account_number: '', bank_account_name: '', note: '' }
+const EMPTY_FORM = { full_name: '', id_card_number: '', address: '', phone: '', line_id: '', email: '', bank_name: '', bank_account_number: '', bank_account_name: '', note: '' }
 
 export default function OwnerDetailPage() {
   const { ownerId } = useParams()
@@ -48,7 +48,8 @@ export default function OwnerDetailPage() {
     setOwner(o)
     setRooms(rms ?? [])
     setForm({
-      full_name: o.full_name, phone: o.phone ?? '', line_id: o.line_id ?? '',
+      full_name: o.full_name, id_card_number: o.id_card_number ?? '',
+      address: o.address ?? '', phone: o.phone ?? '', line_id: o.line_id ?? '',
       email: o.email ?? '', bank_name: o.bank_name ?? '',
       bank_account_number: o.bank_account_number ?? '',
       bank_account_name: o.bank_account_name ?? '', note: o.note ?? '',
@@ -64,6 +65,8 @@ export default function OwnerDetailPage() {
     setSaving(true)
     const payload = {
       full_name: form.full_name.trim(),
+      id_card_number: form.id_card_number.trim() || null,
+      address: form.address.trim() || null,
       phone: form.phone.trim() || null,
       line_id: form.line_id.trim() || null,
       email: form.email.trim() || null,
@@ -122,9 +125,11 @@ export default function OwnerDetailPage() {
         <Card className="max-w-2xl">
           <form onSubmit={handleSave} className="grid grid-cols-2 gap-4">
             <Input label="ชื่อ-นามสกุล" required value={form.full_name} onChange={e => set('full_name', e.target.value)} wrapperClass="col-span-2" />
+            <Input label="เลขบัตรประชาชน" value={form.id_card_number} onChange={e => set('id_card_number', e.target.value)} placeholder="1234567890123" />
             <Input label="เบอร์โทร" phone value={form.phone} onChange={e => set('phone', e.target.value)} placeholder="0810000000" />
+            <Input label="ที่อยู่" value={form.address} onChange={e => set('address', e.target.value)} wrapperClass="col-span-2" placeholder="บ้านเลขที่ ถนน แขวง เขต จังหวัด" />
             <Input label="Line ID" value={form.line_id} onChange={e => set('line_id', e.target.value)} placeholder="@lineid" />
-            <Input label="อีเมล" type="email" value={form.email} onChange={e => set('email', e.target.value)} wrapperClass="col-span-2" />
+            <Input label="อีเมล" type="email" value={form.email} onChange={e => set('email', e.target.value)} />
 
             <div className="col-span-2">
               <p className="mb-3 text-sm font-medium text-gray-700">ข้อมูลธนาคาร</p>
