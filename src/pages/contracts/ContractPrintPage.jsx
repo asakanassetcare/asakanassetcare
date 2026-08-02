@@ -112,7 +112,7 @@ export default function ContractPrintPage() {
       const { data, error } = await supabase.from('contracts').select(`
         *,
         rooms(id, room_number, floor, size_sqm, ownership, title_deed_number, buildings(id, name, projects(name)),
-          owners(full_name, id_card_number, address, phone, bank_name, bank_account_number, bank_account_name)),
+          owners(full_name, id_card_number, address, phone, bank_name, bank_branch, bank_account_number, bank_account_name)),
         tenants(id, full_name, phone, email, id_card_last4, birth_date, address_house_no, address_road, address_subdistrict, address_district, address_province),
         profiles!assigned_staff_id(id, full_name)
       `).eq('id', contractId).single()
