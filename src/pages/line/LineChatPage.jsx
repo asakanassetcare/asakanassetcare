@@ -23,6 +23,10 @@ function thaiDateLabel(dateStr) {
   return `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear() + 543}`
 }
 
+function activeContract(conv) {
+  return conv.tenants?.contracts?.find(c => ['active', 'approved', 'pending_approve'].includes(c.status)) ?? null
+}
+
 function Avatar({ name, pictureUrl, size = 40 }) {
   const initials = (name ?? '?').slice(0, 1).toUpperCase()
   const palette  = ['bg-green-500', 'bg-blue-500', 'bg-purple-500', 'bg-orange-500', 'bg-pink-500']
@@ -149,7 +153,7 @@ export default function LineChatPage() {
   async function loadConversations() {
     const { data } = await supabase
       .from('line_conversations')
-      .select('*, tenants(full_name, phone)')
+      .select('*, tenants(full_name, phone, contracts(status, monthly_rent, rooms(room_number)))')
       .order('last_message_at', { ascending: false, nullsFirst: false })
     setConversations(data ?? [])
     setLoadingConvs(false)
@@ -348,6 +352,12 @@ export default function LineChatPage() {
                 {conv.tenants?.full_name && (
                   <p className="text-[11px] text-[#06C755] truncate leading-tight">{conv.tenants.full_name}</p>
                 )}
+                {(() => { const ct = activeContract(conv); return ct?.rooms?.room_number ? (
+                  <p className="text-[11px] text-gray-500 truncate leading-tight">
+                    {'ห้อง '}{ct.rooms.room_number}
+                    {ct.monthly_rent ? ` · ฿${Number(ct.monthly_rent).toLocaleString('th-TH')}` : ''}
+                  </p>
+                ) : null })()}
                 <p className="text-xs text-gray-400 truncate mt-0.5 leading-tight">
                   {conv.last_message ?? '—'}
                 </p>
@@ -374,6 +384,7 @@ export default function LineChatPage() {
                 <p className="text-xs text-gray-400">
                   {selected.tenants.full_name}
                   {selected.tenants.phone ? ` · ${selected.tenants.phone}` : ''}
+                  {(() => { const ct = activeContract(selected); return ct?.rooms?.room_number ? ` · ห้อง ${ct.rooms.room_number}` : null })()}
                 </p>
               )}
             </div>
