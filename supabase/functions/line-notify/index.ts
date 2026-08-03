@@ -634,7 +634,7 @@ Deno.serve(async (req) => {
     const result = await pushLine(userId, [summaryFlex], token)
 
     if (result.ok) {
-      await saveOutboundChat(supabase, userId, summaryFlex.altText, tenantName)
+      try { await saveOutboundChat(supabase, userId, summaryFlex.altText, tenantName) } catch (_) { /* non-fatal */ }
       return Response.json({ ok: true, sent: 1 }, { status: 200 })
     }
     return Response.json({ ok: false, sent: 0, error: result.error }, { status: 200 })

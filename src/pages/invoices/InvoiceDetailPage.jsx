@@ -76,6 +76,7 @@ export default function InvoiceDetailPage() {
   // LINE manual notify
   const [lineNotifying,  setLineNotifying]  = useState(false)
   const [lineNotifyDone, setLineNotifyDone] = useState(null) // 'ok' | 'err'
+  const [lineErrDetail,  setLineErrDetail]  = useState('')
 
   // Penalty discount modal
   const [discountModal, setDiscountModal] = useState(false)
@@ -166,11 +167,17 @@ export default function InvoiceDetailPage() {
   async function handleSendLineNotify() {
     setLineNotifying(true)
     setLineNotifyDone(null)
+    setLineErrDetail('')
     const { data, error } = await supabase.functions.invoke('line-notify', {
       body: { type: 'invoice_single', invoice_id: invoiceId },
     })
     setLineNotifying(false)
-    setLineNotifyDone((error || data?.ok === false) ? 'err' : 'ok')
+    const failed = !!(error || data?.ok === false)
+    if (failed) {
+      const detail = error?.message ?? (data?.error ? String(data.error) : `data.ok=${JSON.stringify(data?.ok)}`)
+      setLineErrDetail(detail)
+    }
+    setLineNotifyDone(failed ? 'err' : 'ok')
     setTimeout(() => setLineNotifyDone(null), 4000)
   }
 
@@ -544,7 +551,7 @@ export default function InvoiceDetailPage() {
             </Button>
           )}
           {lineNotifyDone === 'ok' && <span className="text-sm font-medium text-green-600">ส่งแล้ว ✓</span>}
-          {lineNotifyDone === 'err' && <span className="text-sm font-medium text-red-600">ส่งไม่สำเร็จ</span>}
+          {lineNotifyDone === 'err' && <span className="text-sm font-medium text-red-600">ส่งไม่สำเร็จ{lineErrDetail ? ` (${lineErrDetail})` : ''}</span>}
           {canPay && (
             <Button icon={<CreditCard className="h-4 w-4" />} onClick={openPayModal}>บันทึกการชำระ</Button>
           )}
