@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
-import { ChevronRight, CreditCard, XCircle, Upload, Loader2, CheckCircle, X } from 'lucide-react'
+import { ChevronRight, CreditCard, XCircle, Upload, Loader2, CheckCircle, X, MessageSquare } from 'lucide-react'
 import { pdf } from '@react-pdf/renderer'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
@@ -73,6 +73,10 @@ export default function InvoiceDetailPage() {
   const [cancelling,   setCancelling]   = useState(false)
   const [cancelError,  setCancelError]  = useState('')
 
+  // LINE manual notify
+  const [lineNotifying,  setLineNotifying]  = useState(false)
+  const [lineNotifyDone, setLineNotifyDone] = useState(null) // 'ok' | 'err'
+
   // Penalty discount modal
   const [discountModal, setDiscountModal] = useState(false)
   const [discountForm,  setDiscountForm]  = useState({ amount: '', note: '' })
@@ -83,7 +87,7 @@ export default function InvoiceDetailPage() {
 
   async function fetchAll() {
     const [{ data: inv }, { data: itms }, { data: pmts }] = await Promise.all([
-      supabase.from('invoices').select('*, rooms(room_number, title_deed_number, buildings(name)), tenants(full_name, phone), contracts(contract_number, booking_id)').eq('id', invoiceId).single(),
+      supabase.from('invoices').select('*, rooms(room_number, title_deed_number, buildings(name)), tenants(full_name, phone, line_user_id), contracts(contract_number, booking_id)').eq('id', invoiceId).single(),
       supabase.from('invoice_items').select('*').eq('invoice_id', invoiceId).order('display_order'),
       supabase.from('payments').select('*, profiles!recorded_by(full_name)').eq('invoice_id', invoiceId).order('created_at', { ascending: false }),
     ])
@@ -157,6 +161,17 @@ export default function InvoiceDetailPage() {
 
     const usedIds = new Set((used ?? []).map(row => row.invoice_id))
     setRelationCandidates((candidates ?? []).filter(row => !usedIds.has(row.id)))
+  }
+
+  async function handleSendLineNotify() {
+    setLineNotifying(true)
+    setLineNotifyDone(null)
+    const { error } = await supabase.functions.invoke('line-notify', {
+      body: { type: 'invoice', contract_id: invoice.contract_id },
+    })
+    setLineNotifying(false)
+    setLineNotifyDone(error ? 'err' : 'ok')
+    setTimeout(() => setLineNotifyDone(null), 4000)
   }
 
   async function openPayModal() {
@@ -518,6 +533,18 @@ export default function InvoiceDetailPage() {
               label="PDF ใบเสร็จ"
             />
           )}
+          {['pending', 'overdue'].includes(invoice.status) && invoice.tenants?.line_user_id && ['super_admin', 'head_staff', 'staff'].includes(role) && (
+            <Button
+              variant="secondary"
+              icon={lineNotifying ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageSquare className="h-4 w-4" />}
+              onClick={handleSendLineNotify}
+              disabled={lineNotifying}
+            >
+              แจ้งเตือน LINE
+            </Button>
+          )}
+          {lineNotifyDone === 'ok' && <span className="text-sm font-medium text-green-600">ส่งแล้ว ✓</span>}
+          {lineNotifyDone === 'err' && <span className="text-sm font-medium text-red-600">ส่งไม่สำเร็จ</span>}
           {canPay && (
             <Button icon={<CreditCard className="h-4 w-4" />} onClick={openPayModal}>บันทึกการชำระ</Button>
           )}
