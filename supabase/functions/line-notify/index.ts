@@ -598,5 +598,39 @@ Deno.serve(async (req) => {
     return notifyResponse({ sent, failed, skipped, found: invoices?.length ?? 0 })
   }
 
+  // Manual single-invoice push — no dedupe, always returns HTTP 200
+  if (type === 'invoice_single') {
+    const invoiceId = body.invoice_id as string | undefined
+    if (!invoiceId) {
+      return Response.json({ ok: false, error: 'invoice_id required' }, { status: 400 })
+    }
+
+    const { data: inv } = await supabase
+      .from('invoices')
+      .select(`
+        id, invoice_number, invoice_type, billing_period, total_amount, due_date, room_id,
+        rooms(room_number, buildings(name)),
+        tenants(id, line_user_id, full_name)
+      `)
+      .eq('id', invoiceId)
+      .single()
+
+    const userId = inv?.tenants?.line_user_id
+    if (!userId) {
+      return Response.json({ ok: false, sent: 0, error: 'ผู้เช่ายังไม่ได้เชื่อมต่อ LINE' }, { status: 200 })
+    }
+
+    const tenantName = inv.tenants.full_name ?? ''
+    const roomName   = `${inv.rooms?.buildings?.name ?? ''} ห้อง ${inv.rooms?.room_number ?? ''}`
+    const summaryFlex = buildSummaryFlex(`${tenantName} · ${roomName}`, [inv], bank, ratePerDay, today)
+    const result = await pushLine(userId, [summaryFlex], token)
+
+    if (result.ok) {
+      await saveOutboundChat(supabase, userId, summaryFlex.altText, tenantName)
+      return Response.json({ ok: true, sent: 1 }, { status: 200 })
+    }
+    return Response.json({ ok: false, sent: 0, error: result.error }, { status: 200 })
+  }
+
   return Response.json({ ok: false, error: `Unknown notification type: ${type}` }, { status: 400 })
 })

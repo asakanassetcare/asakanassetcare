@@ -166,11 +166,11 @@ export default function InvoiceDetailPage() {
   async function handleSendLineNotify() {
     setLineNotifying(true)
     setLineNotifyDone(null)
-    const { error } = await supabase.functions.invoke('line-notify', {
-      body: { type: 'invoice', contract_id: invoice.contract_id },
+    const { data, error } = await supabase.functions.invoke('line-notify', {
+      body: { type: 'invoice_single', invoice_id: invoiceId },
     })
     setLineNotifying(false)
-    setLineNotifyDone(error ? 'err' : 'ok')
+    setLineNotifyDone((error || data?.ok === false) ? 'err' : 'ok')
     setTimeout(() => setLineNotifyDone(null), 4000)
   }
 
