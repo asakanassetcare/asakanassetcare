@@ -163,8 +163,9 @@ function thaiDateShort(dateStr: string) {
 }
 
 function penaltyDetails(dueDate: string, _billingPeriod: string | null, ratePerDay: number, today: string) {
-  if (today <= dueDate) return null
-  const startD = new Date(dueDate + 'T00:00:00Z')
+  const graceEnd = addDays(dueDate, 4) // 4-day grace: penalty starts day 5
+  if (today <= graceEnd) return null
+  const startD = new Date(graceEnd + 'T00:00:00Z')
   startD.setUTCDate(startD.getUTCDate() + 1)
   const startStr = startD.toISOString().slice(0, 10)
   const endD = new Date(today + 'T00:00:00Z')
@@ -202,12 +203,19 @@ function buildSummaryFlex(tenantName: string, invoices: any[], bank: any, ratePe
 
   // หาวันครบกำหนดที่เร็วที่สุด
   const earliestDue = invoices.reduce((min, i) => i.due_date < min ? i.due_date : min, invoices[0].due_date)
-  const dueDate1 = thaiDate(earliestDue)
-  const dueDate5 = thaiDate(addDays(earliestDue, 4))
+  const dueDate1    = thaiDate(earliestDue)
+  const graceEndStr = addDays(earliestDue, 4)
+  const dueDate5    = thaiDate(graceEndStr)
+  const inGrace     = today > earliestDue && today <= graceEndStr
   const dueNoticeRows = today <= earliestDue
     ? [
         { type: 'text', text: `ครบกำหนดวันที่ ${dueDate1}`, size: 'sm', color: '#374151', margin: 'lg' },
         { type: 'text', text: `ชำระได้ไม่เกิน ${dueDate5}`, size: 'sm', color: '#DC2626', weight: 'bold', margin: 'xs' },
+      ]
+    : inGrace
+    ? [
+        { type: 'text', text: `ครบกำหนดวันที่ ${dueDate1}`, size: 'sm', color: '#374151', margin: 'lg' },
+        { type: 'text', text: `ชำระได้ไม่เกิน ${dueDate5} — ยังไม่มีค่าปรับ`, size: 'sm', color: '#D97706', weight: 'bold', margin: 'xs' },
       ]
     : [
         { type: 'text', text: `ครบกำหนดวันที่ ${dueDate1}`, size: 'sm', color: '#374151', margin: 'lg' },
