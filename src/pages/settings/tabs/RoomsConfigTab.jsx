@@ -52,7 +52,21 @@ export default function RoomsConfigTab() {
       supabase.from('projects').select('id, name').order('name'),
       supabase.from('room_types').select('id, name').order('name'),
     ])
-    setRooms(rms ?? [])
+
+    // Fetch active contracts to get true occupancy (rooms.status may be stale)
+    const roomIds = (rms ?? []).map(r => r.id)
+    let occupiedIds = new Set()
+    if (roomIds.length > 0) {
+      const { data: cons } = await supabase
+        .from('contracts')
+        .select('room_id')
+        .in('room_id', roomIds)
+        .in('status', ['pending_approve', 'approved', 'active'])
+        .is('actual_move_out_at', null)
+      occupiedIds = new Set((cons ?? []).map(c => c.room_id))
+    }
+
+    setRooms((rms ?? []).map(r => ({ ...r, status: occupiedIds.has(r.id) ? 'occupied' : r.status })))
     setBuildings(blds ?? [])
     setProjects(prjs ?? [])
     setRoomTypes(rts ?? [])
