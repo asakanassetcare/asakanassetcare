@@ -272,7 +272,7 @@ export default function PaymentsPage() {
     let receiptUrl = null
     try {
       const blob = await pdf(
-        <ReceiptPDF payment={pmt} invoice={pmt.invoices} company={settings} />
+        <ReceiptPDF payment={pmt} invoice={pmt.invoices} company={settings?.company ?? {}} />
       ).toBlob()
       const storagePath = `receipts/${pmt.id}.pdf`
       await supabase.storage.from('payment-slips').upload(storagePath, blob, {
