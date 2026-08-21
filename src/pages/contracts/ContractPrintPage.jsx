@@ -439,7 +439,7 @@ export default function ContractPrintPage() {
           สัญญานี้ทำขึ้นเป็นสองฉบับ มีข้อความถูกต้องตรงกัน คู่สัญญาทั้งสองฝ่ายได้อ่านและเข้าใจข้อความในสัญญานี้โดยตลอดแล้ว เห็นว่าถูกต้องตรงตามเจตนา จึงได้ลงลายมือชื่อไว้เป็นสำคัญต่อหน้าพยาน และคู่สัญญาต่างยึดถือไว้ฝ่ายละหนึ่งฉบับ
         </p>
         <div className="grid grid-cols-2 gap-x-8">
-          <Sig role="ผู้ให้เช่า" name={staffName} suffix={isManaged ? '(แทน)' : ''} smallName />
+          <Sig role="ผู้ให้เช่า" name="ภัสสรมณฑ์ สิริณลญากรณ์" />
           <Sig role="ผู้เช่า" name={tName} />
           <Sig role="พยาน" wideName />
           <Sig role="พยาน" wideName />
@@ -498,7 +498,7 @@ export default function ContractPrintPage() {
             ผู้เช่าได้ตรวจสอบทรัพย์สิน เฟอร์นิเจอร์ และเครื่องใช้ไฟฟ้าตามรายการข้างต้นแล้ว เห็นว่าครบถ้วน อยู่ในสภาพดี ใช้งานได้ตามปกติ และยินยอมรับผิดชอบหากเกิดความเสียหายหรือสูญหายในระหว่างอายุสัญญาเช่า
           </p>
           <div className="grid grid-cols-2 gap-x-8">
-            <Sig role="ผู้ให้เช่า" name="ภัสสรมณฑ์ สิริณลญากรณ์" />
+            <Sig role="ตัวแทนผู้ให้เช่า" name={staffName} wideName={!staffName} />
             <Sig role="ผู้เช่า" name={tName} wideName />
           </div>
         </div>
