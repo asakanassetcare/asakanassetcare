@@ -152,6 +152,7 @@ export default function ContractPrintPage() {
   const isManaged = c.rooms?.ownership === 'managed'
   const owner     = c.rooms?.owners ?? {}
   const staffName = c.profiles?.full_name ?? null
+  const signatoryName = settings?.company?.signatory_name || 'ภัสสรมณฑ์ สิริณลญากรณ์'
 
   // ผู้ให้เช่า: managed → เจ้าของห้อง / owned → บริษัท (ไม่แตะ logic เดิมของบริษัท)
   const lessorName    = isManaged ? (owner.full_name || DS)       : (settings?.company?.name    || DS)
@@ -291,7 +292,7 @@ export default function ContractPrintPage() {
         <div className="mt-4 space-y-2.5 text-justify text-[13.5px] leading-[2.05]">
           <p className="indent-[4em]">
             สัญญาฉบับนี้ทำขึ้นระหว่าง <TL v={lessorName} /> {lessorIdLabel} <TL v={lessorId} />
-            {' '}{lessorAddrPrefix} <TL v={lessorAddrFull} min="min-w-[160px]" /> โดย <TL v={staffName} /> ผู้มีอำนาจกระทำการแทน
+            {' '}{lessorAddrPrefix} <TL v={lessorAddrFull} min="min-w-[160px]" /> โดย <TL v={signatoryName} /> ผู้มีอำนาจกระทำการแทน
             {' '}ซึ่งต่อไปในสัญญานี้เรียกว่า "ผู้ให้เช่า" ฝ่ายหนึ่ง
           </p>
           <p>
@@ -439,7 +440,7 @@ export default function ContractPrintPage() {
           สัญญานี้ทำขึ้นเป็นสองฉบับ มีข้อความถูกต้องตรงกัน คู่สัญญาทั้งสองฝ่ายได้อ่านและเข้าใจข้อความในสัญญานี้โดยตลอดแล้ว เห็นว่าถูกต้องตรงตามเจตนา จึงได้ลงลายมือชื่อไว้เป็นสำคัญต่อหน้าพยาน และคู่สัญญาต่างยึดถือไว้ฝ่ายละหนึ่งฉบับ
         </p>
         <div className="grid grid-cols-2 gap-x-8">
-          <Sig role="ผู้ให้เช่า" name="ภัสสรมณฑ์ สิริณลญากรณ์" />
+          <Sig role="ผู้ให้เช่า" name={signatoryName} />
           <Sig role="ผู้เช่า" name={tName} />
           <Sig role="พยาน" wideName />
           <Sig role="พยาน" wideName />
